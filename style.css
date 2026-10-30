@@ -368,3 +368,23 @@ button.kcard { border: 0; padding: 0; background: none; color: inherit; font: in
 .ok { margin: 0; color: #8ce8bd; font-weight: 700; }
 .link { border: 0; background: none; padding: 4px 2px; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; font-weight: 700; min-height: 32px; }
 .install { margin-top: 16px; }
+
+/* ---------- secret challenges ---------- */
+.deck-item.locked { background: repeating-linear-gradient(135deg, var(--bg-2) 0 10px, var(--panel) 10px 20px); border-style: dashed; }
+.deck-item.locked .t { color: var(--ink-2); }
+.deck-item.locked .t .ico { width: 18px; height: 18px; color: var(--ink-3); }
+.deck-item.locked .s { font-style: italic; }
+.deck-item .bar { display: block; height: 4px; margin-top: 8px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
+.deck-item .bar i { display: block; height: 100%; background: var(--ink-3); border-radius: 4px; }
+.deck-item.secret { border-color: color-mix(in srgb, var(--r5) 40%, var(--line)); }
+.pill.secret { background: color-mix(in srgb, var(--r5) 16%, transparent); color: #ffd98a; }
+.pill.new { background: var(--accent); color: var(--accent-ink); }
+.secret-tag { margin: 0 52px 12px 2px; font: italic 500 16px var(--serif); color: #ffd98a; }
+.locked-detail { text-align: center; padding: 8px 4px 0; }
+.locked-detail > .ico { width: 44px; height: 44px; color: var(--ink-3); }
+.locked-detail h2 { font: 900 30px/1.1 var(--serif); margin: 8px 0 6px; }
+.locked-detail .locked-hint { font: italic 500 18px/1.4 var(--serif); color: var(--ink-2); margin: 0 0 18px; }
+.locked-detail .level { margin: 0 0 6px; text-align: left; }
+.tab { position: relative; }
+.tab.has-new::after { content: ""; position: absolute; top: 8px; left: calc(50% + 10px); width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--bg); }
+.stage-hint.levelup { white-space: pre-line; text-align: center; max-width: 340px; }
