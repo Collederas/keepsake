@@ -539,7 +539,7 @@ function todayActions(ch) {
   }
   const plan = todayPlan() || ch.tiny ? '' : `<button class="btn ghost" data-act="plan" data-id="${ch.id}">${icon('calendar')} Plan it</button>`;
   return `
-  <div class="actions">
+  <div class="actions dock">
     <button class="btn primary big" data-act="done" data-id="${ch.id}">I did it</button>
     <div class="actions-row">${plan}${secondary}</div>
   </div>`;
