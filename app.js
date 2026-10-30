@@ -778,7 +778,7 @@ function onboardingHTML() {
   return `
     <section class="onboard">
       <h2>Want a nudge?</h2>
-      <p>A nudge for each new challenge, and a check-in if you haven't done it. That's all.</p>
+      <p>A nudge for each new challenge, and a check-in if you haven't done it yet.</p>
       <div id="reminder-box">${reminderHTML()}</div>
       ${installHTML()}
       <div class="actions"><button class="btn primary big" data-act="onboard-next">Next</button></div>
@@ -921,7 +921,7 @@ function busySettingsHTML() {
       <button class="btn" data-act="busy-set" data-len="14">2 weeks</button>
       <button class="btn" data-act="busy-set" data-len="open">Until I'm back</button>
     </div>
-    <p class="hint">Pauses reminders. Nothing piles up.</p>`;
+    <p class="hint">Pauses reminders.</p>`;
 }
 function refreshReminderUI() {
   const box = $('#reminder-box');
@@ -990,7 +990,7 @@ function syncReminder() {
   const thursday = weekly() && new Date().getDay() === 4;
   if (morning > 0 && !d.earned && !tp && paceDay() && !fewCapped()) {
     reminderTimers.push(setTimeout(() => thursday
-      ? showNote(`Still up for ${ch.title} this week?`, 'No rush. Next week is fine too.', 'keepsake-morning')
+      ? showNote(`Still up for ${ch.title} this week?`, ch.why, 'keepsake-morning')
       : showNote(`${W().Cur} challenge`, ch.title, 'keepsake-morning'), morning));
   }
   const planned = tp ? until(tp.time) : -1;
@@ -1001,7 +1001,7 @@ function syncReminder() {
   const evening = tp ? Math.max(until(EVENING_TIME), planned + 60 * 60 * 1000) : until(EVENING_TIME);
   // the evening check-in is opt-in, except on days you planned something
   if (((r.evening && !weekly()) || tp) && evening > 0 && evening <= until('21:30')) {
-    reminderTimers.push(setTimeout(() => { if (!today().earned) showNote(`Still up for ${ch.title}?`, "Tomorrow's fine too.", 'keepsake-evening'); }, evening));
+    reminderTimers.push(setTimeout(() => { if (!today().earned) showNote(`Still up for ${ch.title}?`, ch.why, 'keepsake-evening'); }, evening));
   }
 }
 function calendarFile() {
@@ -1028,8 +1028,8 @@ function calendarFile() {
     'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Keepsake//Reminders//EN', 'CALSCALE:GREGORIAN',
     ...event('morning', r.time, `${W().Cur} Keepsake challenge`, `Open Keepsake to see ${W().cur} challenge:`),
     ...(weekly()
-      ? event('thursday', r.time, 'Keepsake: still up for it this week?', "No rush. Here's this week's challenge:", 'RRULE:FREQ=WEEKLY;BYDAY=TH')
-      : r.evening ? event('evening', EVENING_TIME, 'Keepsake: still up for it?', "Tomorrow's fine too. Here's the challenge:") : []),
+      ? event('thursday', r.time, 'Keepsake: still up for it this week?', "Here's this week's challenge:", 'RRULE:FREQ=WEEKLY;BYDAY=TH')
+      : r.evening ? event('evening', EVENING_TIME, 'Keepsake: still up for it?', "Here's the challenge:") : []),
     'END:VCALENDAR',
   ];
   download(new Blob([lines.join('\r\n')], { type: 'text/calendar' }), 'keepsake-reminders.ics');

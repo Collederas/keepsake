@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'keepsake-v14';
+const CACHE = 'keepsake-v15';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'data/challenges.json', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -99,7 +99,7 @@ async function maybeRemind() {
       await show(`It's time: ${m.title}`, m.plan.body, 'keepsake-plan');
       shown.plan = key;
     } else if (mins >= toMinutes(m.plan.time) + 60 && mins <= 21 * 60 + 30 && shown.evening !== key) {
-      await show(`Still up for ${m.title}?`, "Tomorrow's fine too.", 'keepsake-evening', { actions: [{ action: 'not-today', title: 'Not today' }] });
+      await show(`Still up for ${m.title}?`, m.why || '', 'keepsake-evening', { actions: [{ action: 'not-today', title: 'Not today' }] });
       shown.evening = key;
     }
     return save();
@@ -138,7 +138,7 @@ async function maybeRemind() {
   if (!weekly && quiet >= 3 && Math.floor(now / 864e5) % 2) return; // every other day once things go quiet
   if (mins >= toMinutes(m.time) && shown.morning !== key) {
     if (weekly && now.getDay() === 4) {
-      if (fresh && m.title) await show(`Still up for ${m.title} this week?`, 'No rush. Next week is fine too.', 'keepsake-morning');
+      if (fresh && m.title) await show(`Still up for ${m.title} this week?`, m.why || '', 'keepsake-morning');
     } else {
       const variants = fresh && m.title
         ? (weekly
@@ -149,7 +149,7 @@ async function maybeRemind() {
     }
     shown.morning = key;
   } else if (!weekly && m.evening && mins >= toMinutes('20:00') && mins <= 21 * 60 + 30 && shown.evening !== key && fresh) {
-    await show(`Still up for ${m.title}?`, "Tomorrow's fine too.", 'keepsake-evening', { actions: [{ action: 'not-today', title: 'Not today' }] });
+    await show(`Still up for ${m.title}?`, m.why || '', 'keepsake-evening', { actions: [{ action: 'not-today', title: 'Not today' }] });
     shown.evening = key;
   }
   return save();
