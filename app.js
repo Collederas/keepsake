@@ -34,6 +34,19 @@ const PREFS = {
 const DAY_ZERO = { id: 'day-zero', title: 'Day Zero', category: 'zero', courage: 1, minutes: 1, cost: 'free', solo: true, prompt: '', why: '', easier: '' };
 const ZERO_LOOK = { name: 'Day Zero', color: '#ff7a45', light: '#ffd2bf', dark: '#7a2c10' };
 const isZero = c => c.challengeId === DAY_ZERO.id;
+// Day Zero starts as an empty frame holding a wish, and turns into a real card the day you do it
+const isWish = c => isZero(c) && c.pending;
+// foil: earned by how you did a challenge, and only found out when the card flips
+const FINISH = { planned: 'Planned and done', back: 'Back after a break' };
+function finishLabels(card) {
+  const ch = state.byId.get(card.challengeId) || {};
+  const keys = card.finishes || (card.planned ? ['planned'] : []);
+  return keys.map(k => k === 'dared' ? `Dared by ${card.daredBy || 'a friend'}`
+    : k === 'first' ? `First ${(CATS[ch.category] || { label: '' }).label} card`
+    : FINISH[k]).filter(Boolean);
+}
+const cardTitle = card => (isZero(card) && card.wish) || (state.byId.get(card.challengeId) || { title: 'Lost challenge' }).title;
+const isFoil = card => !!(card.finishes && card.finishes.length);
 const realCards = () => state.cards.filter(c => !isZero(c));
 // what might get in the way: tap an option, get a suggested plan you can edit
 const OBSTACLES = [
@@ -276,7 +289,7 @@ function today() {
     state.day = { date: key, shown: [], idx: 0, custom: null, earned: null, prev };
     // a break that ran out ends quietly, with an easy start
     const b = state.settings.busyUntil;
-    if (b && b !== 'open' && b < dayKey()) { state.settings.busyUntil = null; saveSettings(); state.welcomeBack = 'busy'; }
+    if (b && b !== 'open' && b < dayKey()) { state.settings.busyUntil = null; state.settings.backFrom = dayKey(); saveSettings(); state.welcomeBack = 'busy'; }
     // a dare accepted after today's card was sealed becomes the next day's challenge
     const pd = state.settings.pendingDare;
     if (pd) {
@@ -339,7 +352,7 @@ function currentChallenge() {
 
 /* ================= rendering: challenge ================= */
 function questHTML(ch, { today: onToday = false, easy = false } = {}) {
-  const courage = easy ? Math.max(1, ch.courage - 1) : ch.courage;
+  const courage = ch.courage;
   const goEasy = ch.tiny ? '' : `<details class="easier"><summary>Not feeling it? Try the easier version</summary><p>${esc(ch.easier)}</p>`;
   const pips = [1, 2, 3, 4, 5].map(i => `<i class="${i <= courage ? 'on' : ''}"></i>`).join('');
   const easier = ch.tiny ? ''
@@ -386,7 +399,7 @@ function todayActions(ch) {
 function cardHTML(card, url, cls = '', tag = 'div') {
   const ch = state.byId.get(card.challengeId) || { title: 'Lost challenge', category: 'mind' };
   const r = /\br0\b/.test(cls) ? 0 : card.rarity;
-  const initial = (card.story || ch.title).trim().charAt(0).toUpperCase();
+  const initial = (card.story || cardTitle(card)).trim().charAt(0).toUpperCase();
   const photo = url
     ? `<div class="kf-photo" style="background-image:url('${url}')"></div>`
     : `<div class="kf-photo empty"><span>${esc(initial)}</span></div>`;
@@ -395,9 +408,10 @@ function cardHTML(card, url, cls = '', tag = 'div') {
     : card.preview ? '<span class="kf-story placeholder">Your words go here</span>' : '';
   const zero = isZero(card);
   const topLabel = zero ? 'DAY ZERO' : `${ch.secret ? 'SECRET · ' : ''}${CATS[ch.category].label.toUpperCase()}`;
-  const footLeft = zero ? 'Where it starts' : r ? `${'★'.repeat(r)}<span class="rn"> ${RARITY[r].name}</span>` : '';
+  const footLeft = zero ? 'Where it starts' : r ? `${'★'.repeat(r)}<span class="rn"> ${RARITY[r].name}</span>${isFoil(card) ? '<span class="kf-foil">FOIL</span>' : ''}` : '';
+  const marks = [card.easier ? '<span>Easy version</span>' : '', ...finishLabels(card).map(l => `<span class="fin">${esc(l)}</span>`)].filter(Boolean);
   return `
-  <${tag} class="kcard r${r}${zero && r ? ' kzero' : ''} ${cls}" data-card="${card.id || ''}">
+  <${tag} class="kcard r${r}${zero && r ? ' kzero' : ''}${isFoil(card) && r ? ' foil' : ''} ${cls}" data-card="${card.id || ''}">
     <span class="kcard-inner">
       <span class="kcard-face kcard-back"><span class="sigil">${icon('seal')}<small>KEEPSAKE</small></span></span>
       <span class="kcard-face kcard-front">
@@ -406,9 +420,9 @@ function cardHTML(card, url, cls = '', tag = 'div') {
           ${photo}
           <span class="seal">${icon('seal')}</span>
           <span class="kf-body">
-            <span class="kf-title">${esc(ch.title)}</span>
+            <span class="kf-title">${esc(cardTitle(card))}</span>
             ${story}
-            ${card.planned || card.easier ? `<span class="kf-planned">${[card.easier ? 'Easy version' : '', card.planned ? 'Planned and done' : ''].filter(Boolean).join(' · ')}</span>` : ''}
+            ${marks.length ? `<span class="kf-planned">${marks.join('<i> · </i>')}</span>` : ''}
           </span>
           <span class="kf-foot">
             <span class="kf-rarity">${footLeft}</span>
@@ -422,7 +436,19 @@ function cardHTML(card, url, cls = '', tag = 'div') {
 }
 function cardLabel(card) {
   const ch = state.byId.get(card.challengeId);
-  return isZero(card) ? `Day Zero: ${card.story}` : `Card ${card.no}: ${ch ? ch.title : ''}, ${RARITY[card.rarity].name}, ${fmtDate(card.date)}`;
+  const foil = isFoil(card) ? `, foil: ${finishLabels(card).join(', ')}` : '';
+  return isZero(card) ? `Day Zero: ${card.wish || card.story}` : `Card ${card.no}: ${ch ? ch.title : ''}, ${RARITY[card.rarity].name}${foil}, ${fmtDate(card.date)}`;
+}
+// the empty frame Day Zero waits in until you go and do it
+function wishHTML(card) {
+  return `
+  <span class="kcard wish mid">
+    <span class="wish-frame">
+      <span class="kf-top"><span>DAY ZERO</span><span class="kf-no">#000</span></span>
+      <span class="wish-text">${esc(card.wish)}</span>
+      <span class="wish-foot">Not yet. Do it, then fill it in.</span>
+    </span>
+  </span>`;
 }
 
 function attachTilt(el) {
@@ -545,12 +571,14 @@ function renderToday() {
     el.innerHTML = `${header}${dareNote}${prevNote}
       <div class="done-today">
         <div class="mini-slot"></div>
-        <h2>${fewCapped() ? "That's three this week." : W().see}</h2>
+        ${isBusy() ? `<h2>Nice one. Now rest.</h2>
+        <p>You're taking a breather ${busyUntilText()}.</p>
+        <button class="btn" data-goto="book">See it in your Book</button>` : `<h2>${fewCapped() ? "That's three this week." : W().see}</h2>
         <p>Next challenge <span class="countdown" id="countdown"></span>.</p>
-        <button class="btn" data-goto="deck">Peek at the deck</button>
+        <button class="btn" data-goto="deck">Peek at the deck</button>`}
       </div>${upcomingHTML()}`;
     fillTodayCard(el, earned);
-    tickCountdown();
+    if (!isBusy()) tickCountdown();
   } else {
     const ch = currentChallenge();
     const daredBy = d.dare && d.dare.id === ch.id ? `<p class="dared-by">Dared by ${esc(d.dare.from || 'a friend')}</p>` : '';
@@ -564,6 +592,7 @@ function courageText() {
   return cap >= 5 ? "Courage 5. Everything's open." : `Courage ${cap}. ${n} more like this and bolder ones open up.`;
 }
 function courageHTML() {
+  if (!realCards().length) return '';
   const { cap, count, need } = courageProgress();
   return `<div class="level"><span>${courageText()} <button class="link" data-act="help">How this works</button></span><span class="bar" aria-hidden="true"><i style="width:${cap >= 5 ? 100 : (count / need) * 100}%"></i></span></div>`;
 }
@@ -578,11 +607,11 @@ function onboardingHTML() {
     <section class="onboard">
       <h2>Real-life challenges, at your pace.</h2>
       <ul class="how">
-        <li>Go do the day's challenge, out in the real world.</li>
+        <li>Go do a challenge, out in the real world.</li>
         <li>Come back and add a photo or a line.</li>
         <li>It turns into a card in your Book.</li>
       </ul>
-      <p>Four quick questions so the first ones actually fit your life. You'll start easy and work up to the scary stuff.</p>
+      <p>A few quick questions so the first ones actually fit your life. You'll start easy and work up to the scary stuff.</p>
       <div class="actions">
         <button class="btn primary big" data-act="onboard-next">Let's go</button>
         <button class="btn ghost" data-act="onboard-done">Skip</button>
@@ -606,6 +635,12 @@ function onboardingHTML() {
 }
 // Day Zero: a tiny real commitment instead of a promise to an app
 function dayZeroHTML(inline = false) {
+  if (inline && !state.zeroOpen) return `
+    <aside class="notice zero compact">
+      <div><strong>Day Zero.</strong> What's one thing you've always wanted to try?
+        <button class="link" data-act="zero-open">Add it</button></div>
+      <button class="icon-btn" data-act="zero-skip" aria-label="Not now">${icon('close')}</button>
+    </aside>`;
   return `
     <${inline ? 'aside class="notice zero"' : 'section class="onboard"'}>
       ${inline ? '' : '<h2>Day Zero</h2>'}
@@ -623,13 +658,15 @@ function dayZeroHTML(inline = false) {
 function makeDayZero() {
   const text = ($('#zero-input').value || '').trim().slice(0, 80);
   if (!text) return;
-  const card = { id: uid(), no: 0, challengeId: DAY_ZERO.id, rarity: 1, easier: false, story: text, place: '', date: new Date().toISOString(), photo: false, revealed: false };
+  const card = { id: uid(), no: 0, challengeId: DAY_ZERO.id, rarity: 1, easier: false, wish: text, story: '', place: '', date: new Date().toISOString(), photo: false, pending: true };
   state.cards = state.cards.filter(c => !isZero(c));
   state.cards.push(card);
   saveCards();
   state.settings.dayZeroDone = true;
   saveSettings();
-  startReveal(card, { from: 'zero' });
+  state.zeroOpen = false;
+  if (!state.settings.onboarded) finishOnboarding(); else renderToday();
+  toast("It's card #000 in your Book. Fill it in once you've done it.");
 }
 function prefsHTML() {
   return Object.entries(PREFS).map(([k, p]) => `
@@ -669,9 +706,11 @@ function settingsHTML() {
     <h2 class="proof-title">Settings</h2>
     <h3 class="sub first">Busy?</h3>
     ${busySettingsHTML()}
+    <h3 class="sub">You</h3>
     <label class="field"><span class="field-label">Your first name <span class="opt">So friends know who dared them</span></span>
       <input id="set-name" maxlength="24" value="${esc(state.settings.name)}" autocomplete="given-name"></label>
     <h3 class="sub">Challenges</h3>
+    <button class="link" data-act="help">How courage, colours and foil work</button>
     ${prefsHTML()}
     <p class="hint">Kicks in from your next challenge.</p>
     <h3 class="sub">Reminders</h3>
@@ -967,9 +1006,9 @@ function planBlockHTML(ch) {
       <span class="plan-label">${icon('calendar')} Your plan</span>
       <p>${esc(planSentence(p))}</p>
       ${ifLine(p) ? `<p class="plan-if">${esc(ifLine(p))}</p>` : ''}
-      <span class="plan-links"><button class="link" data-act="plan" data-id="${ch.id}">Change</button> · <button class="link" data-act="plan-cancel" data-id="${ch.id}">Cancel plan</button>${
-        p.obstacle === 'tired' && !isEasy(today()) ? ' · <button class="link" data-act="easy-on">Go easy this time</button>' : ''}${
-        p.obstacle === 'forget' ? ` · <button class="link" data-act="plan-calendar-saved" data-id="${ch.id}">Add to calendar</button>` : ''}</span>
+      <span class="plan-links"><button class="link" data-act="plan" data-id="${ch.id}">Change</button>${
+        p.obstacle === 'tired' && !isEasy(today()) ? '<button class="link" data-act="easy-on">Go easy this time</button>' : ''}${
+        p.obstacle === 'forget' ? `<button class="link" data-act="plan-calendar-saved" data-id="${ch.id}">Add to calendar</button>` : ''}<button class="link quiet" data-act="plan-cancel" data-id="${ch.id}">Cancel plan</button></span>
     </aside>`;
 }
 function upcomingHTML() {
@@ -1036,6 +1075,8 @@ function renderDeckList() {
   const f = state.deckFilter;
   const q = state.deckQuery.trim().toLowerCase();
   const fresh = newSecrets();
+  const { cap } = courageProgress();
+  const rank = c => !isUnlocked(c) ? 4 : done.has(c.id) ? 3 : c.courage > cap ? 2 : 1;
   const list = state.challenges.filter(c => {
     const open = isUnlocked(c);
     if (f === 'todo' && (done.has(c.id) || !open)) return false;
@@ -1043,14 +1084,14 @@ function renderDeckList() {
     if (CATS[f] && c.category !== f) return false;
     if (q) return open && (c.title + ' ' + c.prompt).toLowerCase().includes(q);
     return true;
-  });
+  }).sort((a, b) => rank(a) - rank(b) || (rank(a) === 1 ? b.courage - a.courage : a.courage - b.courage));
   $('#deck-list').innerHTML = list.length ? list.map(c => {
     const info = unlockInfo(c);
     if (!info.unlocked) return `
       <button class="deck-item locked" data-locked="${c.id}">
-        <span class="t"><span>Secret challenge</span>${icon('lock')}</span>
+        <span class="t"><span>Secret ${CATS[c.category].label} challenge</span>${icon('lock')}</span>
         <span class="s">${esc(info.hint)}</span>
-        <span class="m">${CATS[c.category].label}${info.need > 1 ? ` · ${info.have} of ${info.need}` : ''}</span>
+        ${info.need > 1 ? `<span class="m">${info.have} of ${info.need}</span>` : ''}
         ${info.need > 1 ? `<span class="bar" aria-hidden="true"><i style="width:${(info.have / info.need) * 100}%"></i></span>` : ''}
       </button>`;
     const pill = done.has(c.id) ? '<span class="pill">Earned</span>'
@@ -1058,10 +1099,10 @@ function renderDeckList() {
       : fresh.includes(c.id) ? '<span class="pill new">New</span>'
       : c.secret ? '<span class="pill secret">Secret</span>' : '';
     return `
-      <button class="deck-item${c.secret ? ' secret' : ''}" data-open="${c.id}">
+      <button class="deck-item${c.secret ? ' secret' : ''}${rank(c) === 2 ? ' above' : ''}" data-open="${c.id}">
         <span class="t"><span>${esc(c.title)}</span>${pill}</span>
         <span class="s">${esc(c.prompt)}</span>
-        <span class="m">${CATS[c.category].label} · Courage ${c.courage} of 5 · ${fmtMinutes(c.minutes)}</span>
+        <span class="m">${CATS[c.category].label} · ${rank(c) === 2 ? `Opens at courage ${c.courage}` : `Courage ${c.courage} of 5`} · ${fmtMinutes(c.minutes)}</span>
       </button>`;
   }).join('') : `<p class="empty-list">No challenges match “${esc(state.deckQuery)}”.</p>`;
 }
@@ -1071,6 +1112,8 @@ function deckActions(ch) {
   const dare = `<button class="btn ghost big" data-act="plan" data-id="${ch.id}">${icon('calendar')} ${planFor(ch.id) ? 'Change plan' : 'Plan it'}</button>`
     + `<button class="btn ghost big" data-act="dare-friend" data-id="${ch.id}">${icon('share')} Dare a friend</button>`;
   if (card) return `<div class="actions"><button class="btn big" data-view="${card.id}">See your card</button><button class="btn ghost big" data-act="dare-friend" data-id="${ch.id}">${icon('share')} Dare a friend</button></div>`;
+  if (ch.courage > courageProgress().cap && currentId(d) !== ch.id) return `<div class="actions"><button class="btn ghost big" data-act="dare-friend" data-id="${ch.id}">${icon('share')} Dare a friend</button></div>
+    <p class="sheet-note">This one opens at courage ${ch.courage}. You're at ${courageProgress().cap}, and every three at your level gets you one closer.</p>`;
   if (d.earned || fewCapped()) return `<div class="actions">${dare}</div><p class="sheet-note">You've done ${fewCapped() ? 'three this week' : weekly() ? 'one this week' : "today's"}. Save this one for ${fewCapped() || weekly() ? 'next week' : 'tomorrow'}? Plan it.</p>`;
   if (currentId(d) === ch.id) return `<div class="actions"><button class="btn primary big" data-act="done" data-id="${ch.id}">I did it</button>${dare}</div><p class="sheet-note">This is ${W().cur} challenge.</p>`;
   return `<div class="actions"><button class="btn primary big" data-act="pick" data-id="${ch.id}">Do this one ${W().now}</button>${dare}</div>
@@ -1099,7 +1142,9 @@ async function renderBook() {
   el.innerHTML = `${header}
     <p class="book-summary">${parts.join(' · ')}</p>
     <div class="grid">
-      ${cards.map((c, i) => c.revealed === false
+      ${cards.map((c, i) => isWish(c)
+        ? `<button class="cardbtn" data-act="zero-fill" aria-label="${esc(`Day Zero, not done yet: ${c.wish}. Fill it in`)}">${wishHTML(c)}</button>`
+        : c.revealed === false
         ? `<button class="cardbtn" data-act="reveal" data-id="${c.id}" aria-label="Card ${c.no}, not revealed yet">${cardHTML(c, null, 'r0 mid', 'span')}</button>`
         : `<button class="cardbtn" data-view="${c.id}" aria-label="${esc(cardLabel(c))}">${cardHTML(c, urls[i], 'static mid', 'span')}</button>`).join('')}
     </div>
@@ -1172,7 +1217,8 @@ async function openProof(challengeId, { kind = 'today', edit = null, easy = fals
   const ch = state.byId.get(challengeId);
   state.pending = { challengeId, kind, edit, easy, blob: null, keepPhoto: !!(edit && edit.photo), previewUrl: null, ownUrl: false, opener: document.activeElement };
   if (edit && edit.photo) state.pending.previewUrl = await photoUrl(edit);
-  $('#proof-title').textContent = edit ? `Edit card #${pad(edit.no)}` : ch.title;
+  const wish = kind === 'zero' && state.cards.find(isWish);
+  $('#proof-title').textContent = edit ? `Edit card #${pad(edit.no)}` : wish ? wish.wish : ch.title;
   $('#story-input').value = edit ? edit.story : '';
   $('#place-input').value = edit ? edit.place : '';
   $('#upgrade-input').checked = false;
@@ -1207,6 +1253,7 @@ function updateProof() {
   $('#photo-btn').classList.toggle('has-photo', hasPhoto);
   const preview = {
     no: p.edit ? p.edit.no : 0, challengeId: p.challengeId, rarity: p.edit ? p.edit.rarity : 0,
+    wish: p.kind === 'zero' ? (state.cards.find(isWish) || {}).wish : p.edit && p.edit.wish,
     story: story.trim(), place: $('#place-input').value.trim(), date: p.edit ? p.edit.date : new Date().toISOString(), preview: true,
   };
   $('#preview-slot').innerHTML = cardHTML(preview, p.previewUrl, 'static mid');
@@ -1232,9 +1279,30 @@ async function seal() {
     return;
   }
 
+  if (p.kind === 'zero') {
+    const card = state.cards.find(isWish);
+    if (!card) return closeProof();
+    Object.assign(card, { story, place, date: new Date().toISOString(), photo: !!p.blob, pending: false, revealed: false });
+    if (p.blob) photoOk = await putPhoto(card.id, p.blob);
+    saveCards();
+    closeProof();
+    if (!photoOk) toast("This browser couldn't save the photo, so it'll be gone after a reload.");
+    startReveal(card, { from: 'zero' });
+    return;
+  }
+
   const easier = p.easy && !$('#upgrade-input').checked && ch.courage > 1;
   const dare = today().dare;
   const capBefore = courageProgress().cap;
+  const planned = plans().some(x => x.id === ch.id && x.date <= dayKey());
+  const daredBy = dare && dare.id === ch.id ? (dare.from || 'a friend') : null;
+  const lastCard = realCards().reduce((m, c) => (c.date > m ? c.date : m), '');
+  const finishes = [
+    planned && 'planned',
+    daredBy && 'dared',
+    !realCards().some(c => (state.byId.get(c.challengeId) || {}).category === ch.category) && 'first',
+    (state.settings.backFrom || (lastCard && daysBetween(dayKey(new Date(lastCard)), dayKey()) >= 14)) && 'back',
+  ].filter(Boolean);
   const secretsBefore = unlockedSecretIds();
   const card = {
     id: uid(),
@@ -1247,9 +1315,11 @@ async function seal() {
     date: new Date().toISOString(),
     photo: !!p.blob,
     revealed: false,
-    daredBy: dare && dare.id === ch.id ? (dare.from || 'a friend') : null,
-    planned: plans().some(x => x.id === ch.id && x.date <= dayKey()),
+    daredBy,
+    planned,
+    finishes,
   };
+  if (state.settings.backFrom) { state.settings.backFrom = null; saveSettings(); }
   savePlans(plans().filter(x => x.id !== ch.id)); // done early or on time, the plan is finished either way
   if (p.blob) photoOk = await putPhoto(card.id, p.blob);
   state.cards.push(card);
@@ -1311,6 +1381,7 @@ const whoosh = () => noise(0.5, 400, 4000, 0.22);
 const tick = step => tone(330 * Math.pow(2, (step * 4) / 12), 0, 0.14, 'triangle', 0.12);
 const develop = () => { tone(220, 0, 1.6, 'sine', 0.05); tone(330, 0.2, 1.4, 'sine', 0.04); };
 const thud = () => { tone(90, 0, 0.35, 'sine', 0.4); tone(140, 0, 0.2, 'triangle', 0.12); noise(0.12, 300, 120, 0.25); };
+const shimmer = () => [1318, 1568, 1976, 2637].forEach((f, i) => tone(f, i * 0.07, 0.9 - i * 0.1, 'sine', 0.05));
 function chime(r) {
   const notes = [523.25, 659.25, 783.99, 1046.5];
   for (let i = 0; i < Math.min(4, r + 1); i++) tone(notes[i], i * 0.09, 0.9, 'sine', 0.08);
@@ -1446,13 +1517,14 @@ async function startReveal(card, { from = 'book', levelUp = 0, unlocked = [] } =
   const url = await photoUrl(card);
   stage.open();
   const slot = $('#stage-card-slot');
-  slot.innerHTML = cardHTML(card, url, 'waiting dev-photo dev-ink dev-seal', 'button');
+  slot.innerHTML = cardHTML(card, url, 'waiting dev-photo dev-ink dev-seal dev-fin', 'button');
   const el = slot.firstElementChild;
   el.setAttribute('aria-label', 'Reveal your card');
   el.style.setProperty('--rc', RARITY[0].color);
   const hint = $('#stage-hint');
   hint.textContent = state.keyboard ? 'Press Enter to flip your card' : 'Tap to flip your card';
   hint.classList.add('pulse');
+  hint.classList.remove('levelup');
   run = { card, el, url, from, levelUp, unlocked, started: false, startedAt: 0, done: false };
   const myRun = run;
   el.addEventListener('click', () => reveal(myRun), { once: true });
@@ -1468,7 +1540,8 @@ async function reveal(rn) {
   const r = card.rarity;
   const rm = reduceMotion();
   const wait = async ms => { await sleep(rm ? Math.min(ms, 250) : ms); return rn.done; };
-  $('#stage-hint').textContent = '';
+  // after the first few, say how to skip
+  $('#stage-hint').textContent = realCards().filter(c => c.revealed !== false).length >= 2 ? (state.keyboard ? 'Esc to skip' : 'Tap to skip') : '';
   $('#stage-hint').classList.remove('pulse');
   el.classList.remove('waiting');
   el.setAttribute('aria-label', 'Revealing your card');
@@ -1503,6 +1576,15 @@ async function reveal(rn) {
   const s = $('.seal', el).getBoundingClientRect();
   if (!rm) sealDust(r, s.left + s.width / 2, s.top + s.height / 2);
   if (await wait(500)) return;
+  // the surprise: a foil finish you didn't know you'd earned
+  if (isFoil(card)) {
+    $('#stage-hint').textContent = '';
+    el.classList.remove('dev-fin');
+    el.classList.add('foiling');
+    shimmer();
+    vibrate([20, 30, 20, 30, 60]);
+    if (await wait(1300)) return;
+  }
   finishReveal(rn);
 }
 
@@ -1514,7 +1596,7 @@ function finishReveal(rn) {
   const r = card.rarity;
   const rc = isZero(card) ? ZERO_LOOK : RARITY[r];
   const rm = reduceMotion();
-  el.classList.remove('waiting', 'charging', 'dev-photo', 'dev-ink', 'dev-seal');
+  el.classList.remove('waiting', 'charging', 'dev-photo', 'dev-ink', 'dev-seal', 'dev-fin');
   el.style.removeProperty('--rc');
   el.classList.add('flipped');
   $('#stage-hint').textContent = '';
@@ -1543,11 +1625,13 @@ function finishReveal(rn) {
   saveCards();
   const ch = state.byId.get(card.challengeId);
   const news = [];
+  const fin = finishLabels(card);
+  if (isFoil(card)) news.push(`Foil: ${fin.join(' · ')}`);
   if (rn.levelUp) news.push("You're braver than you were. Harder ones are open now.");
   if (rn.unlocked.length === 1) news.push(`You unlocked a secret challenge: ${state.byId.get(rn.unlocked[0]).title}. It's in the Deck.`);
   if (rn.unlocked.length > 1) news.push(`You unlocked ${rn.unlocked.length} secret challenges. They're in the Deck.`);
-  if (isZero(card)) news.push('Your first card. Now go get the next one.');
-  announce(isZero(card) ? `Your first card is in your Book: ${card.story}.` : `${rc.name} card revealed: ${ch.title}. It's in your Book. ${news.join(' ')}`);
+  if (isZero(card)) news.push('You did it. Day Zero is done.');
+  announce(isZero(card) ? `Day Zero is done: ${card.wish || card.story}.` : `${rc.name} card revealed: ${ch.title}. It's in your Book. ${news.join(' ')}`);
   if (news.length) {
     const hint = $('#stage-hint');
     hint.textContent = news.join('\n');
@@ -1579,8 +1663,8 @@ async function openViewer(card) {
   actions.innerHTML = `
     <button class="btn" data-act="edit" data-id="${card.id}">Edit</button>
     <button class="btn" data-act="share" data-id="${card.id}">${icon('share')} Share</button>
-    <button class="btn ghost danger" data-act="delete" data-id="${card.id}">Delete</button>
-    <button class="btn primary" data-act="close-stage">Close</button>`;
+    <button class="btn primary" data-act="close-stage">Close</button>
+    <button class="link danger" data-act="delete" data-id="${card.id}">Delete this card</button>`;
   actions.classList.add('show');
   $('[data-act="close-stage"]', actions).focus();
 }
@@ -1646,6 +1730,11 @@ async function renderCardCanvas(card) {
   const g = x.createLinearGradient(0, 0, W, H);
   g.addColorStop(0, r.light); g.addColorStop(0.4, r.color); g.addColorStop(1, r.dark);
   roundRect(x, 0, 0, W, H, 54); x.fillStyle = g; x.fill();
+  if (isFoil(card)) {
+    const foil = x.createLinearGradient(0, 0, W, H);
+    ['#ff9ad5', '#9ef3ff', '#fff6a0', '#a8ffc4', '#ff9ad5'].forEach((col, i) => foil.addColorStop(i / 4, col));
+    x.globalAlpha = 0.45; roundRect(x, 0, 0, W, H, 54); x.fillStyle = foil; x.fill(); x.globalAlpha = 1;
+  }
   roundRect(x, 28, 28, W - 56, H - 56, 34); x.fillStyle = '#171310'; x.fill();
 
   x.textBaseline = 'alphabetic';
@@ -1673,7 +1762,7 @@ async function renderCardCanvas(card) {
     x.fillStyle = pg; x.fillRect(px, py, pw, ph);
     x.font = 'italic 900 560px Literata, Georgia, serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
     x.fillStyle = 'rgba(255,255,255,0.8)';
-    x.fillText((card.story || ch.title).trim().charAt(0).toUpperCase(), px + pw / 2, py + ph / 2 + 40);
+    x.fillText((card.story || cardTitle(card)).trim().charAt(0).toUpperCase(), px + pw / 2, py + ph / 2 + 40);
     x.textBaseline = 'alphabetic';
   }
   if (card.rarity >= 3) {
@@ -1688,7 +1777,7 @@ async function renderCardCanvas(card) {
   x.fillStyle = '#f4efe6';
   x.font = '900 72px Literata, Georgia, serif';
   let y = py + ph + 92;
-  for (const line of wrap(x, ch.title, W - 128, 2)) { x.fillText(line, 64, y); y += 74; }
+  for (const line of wrap(x, cardTitle(card), W - 128, 2)) { x.fillText(line, 64, y); y += 74; }
   if (card.story) {
     x.fillStyle = '#d2c9bd';
     x.font = 'italic 500 38px Literata, Georgia, serif';
@@ -1696,16 +1785,17 @@ async function renderCardCanvas(card) {
     for (const line of wrap(x, `“${card.story}”`, W - 128, 2)) { x.fillText(line, 64, y); y += 48; }
   }
 
-  if (card.planned || card.easier) {
+  const marks = [card.easier ? 'Easy version' : '', ...finishLabels(card)].filter(Boolean);
+  if (marks.length) {
     x.fillStyle = '#ffb08f';
     x.font = 'italic 500 32px Literata, Georgia, serif';
-    x.fillText([card.easier ? 'Easy version' : '', card.planned ? 'Planned and done' : ''].filter(Boolean).join(' · '), 64, H - 160);
+    x.fillText(marks.join(' · '), 64, H - 160, W - 128);
   }
   x.fillStyle = 'rgba(255,255,255,0.08)';
   x.fillRect(64, H - 128, W - 128, 2);
   x.font = `700 30px ${SANS}`;
   x.fillStyle = r.color;
-  x.fillText(isZero(card) ? 'WHERE IT STARTS' : `${'★'.repeat(card.rarity)}  ${r.name.toUpperCase()}`, 64, H - 72);
+  x.fillText(isZero(card) ? 'WHERE IT STARTS' : `${'★'.repeat(card.rarity)}  ${r.name.toUpperCase()}${isFoil(card) ? ' · FOIL' : ''}`, 64, H - 72);
   x.textAlign = 'right';
   x.font = '500 30px Literata, Georgia, serif';
   x.fillStyle = '#a0968a';
@@ -1863,11 +1953,20 @@ function onAction(t) {
       openSheet(`
         <h2 class="proof-title">How this works</h2>
         <p><strong>Courage</strong> is how bold your challenges get. You start at 2. Do three challenges at your level and the next level opens up. Easy versions don't count toward it, but they still go in your Book.</p>
-        <p><strong>Card colours</strong> come from how much nerve a challenge takes, from Common (grey) to Legendary (gold). You find out which one you got when you flip the card.</p>
+        <p><strong>Card colours</strong> come from how much nerve a challenge takes, from Common (grey) to Legendary (gold).</p>
+        <p><strong>Foil</strong> is the surprise. Some cards come out foil because of how you did the challenge. You find out when you flip it.</p>
         <p><strong>Secret challenges</strong> are the big ones. They open up as you go. The Deck shows what opens each one.</p>`, 'How this works');
       break;
     case 'zero-make':
       makeDayZero();
+      break;
+    case 'zero-open':
+      state.zeroOpen = true;
+      renderToday();
+      $('#zero-input').focus();
+      break;
+    case 'zero-fill':
+      openProof(DAY_ZERO.id, { kind: 'zero' });
       break;
     case 'zero-skip':
       state.settings.dayZeroDone = true;
@@ -1885,6 +1984,7 @@ function onAction(t) {
     }
     case 'busy-end':
       state.settings.busyUntil = null;
+      state.settings.backFrom = dayKey();
       saveSettings();
       state.welcomeBack = 'busy';
       closeDeckSheets();
@@ -2027,8 +2127,7 @@ function onAction(t) {
       const c = run && run.card;
       stage.close();
       if (from === 'zero') {
-        if (!state.settings.onboarded) finishOnboarding(); else show('today');
-        toast('Your first card is in your Book');
+        show(activeScreen());
         break;
       }
       if (c && (from === 'today' || from === 'prev')) {
@@ -2063,7 +2162,7 @@ function onAction(t) {
       if (!t.dataset.armed) {
         t.dataset.armed = '1';
         t.textContent = 'Tap again to delete';
-        setTimeout(() => { if (t.isConnected) { delete t.dataset.armed; t.textContent = 'Delete'; } }, 3000);
+        setTimeout(() => { if (t.isConnected) { delete t.dataset.armed; t.textContent = 'Delete this card'; } }, 3000);
         return;
       }
       state.cards = state.cards.filter(x => x.id !== c.id);
