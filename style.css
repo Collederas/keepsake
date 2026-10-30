@@ -72,8 +72,8 @@ p, li { text-wrap: pretty; }
 .btn .ico { width: 18px; height: 18px; }
 .icon-btn { display: grid; place-items: center; width: 44px; height: 44px; border: 0; border-radius: 50%; background: var(--panel-2); color: var(--ink-2); }
 .actions { display: grid; gap: 10px; margin-top: 18px; }
-.actions-row { display: grid; grid-template-columns: auto 1fr; gap: 10px; }
-.actions-row .btn:only-child { grid-column: 1 / -1; }
+.actions-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.actions-row .btn { flex: 1 1 auto; }
 
 /* ---------- intro / notices ---------- */
 .notice { position: relative; display: flex; gap: 12px; align-items: flex-start; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 52px 14px 16px; margin-bottom: 16px; color: var(--ink-2); font-size: 15px; }
@@ -337,6 +337,7 @@ button.kcard { border: 0; padding: 0; background: none; color: inherit; font: in
 
 /* ---------- courage level ---------- */
 .level { display: grid; gap: 6px; margin: -6px 2px 14px; font-size: 14px; color: var(--ink-2); }
+.level > span:first-child { text-wrap: balance; }
 .level .bar { height: 5px; background: var(--panel-2); border-radius: 5px; overflow: hidden; }
 .level .bar i { display: block; height: 100%; background: var(--accent); border-radius: 5px; transition: width .6s var(--ease-out); }
 .dared-by { margin: 0 2px 10px; font: italic 500 16px var(--serif); color: #ffb08f; }
@@ -388,3 +389,24 @@ button.kcard { border: 0; padding: 0; background: none; color: inherit; font: in
 .tab { position: relative; }
 .tab.has-new::after { content: ""; position: absolute; top: 8px; left: calc(50% + 10px); width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--bg); }
 .stage-hint.levelup { white-space: pre-line; text-align: center; max-width: 340px; }
+
+/* ---------- plans ---------- */
+.plan-block { background: color-mix(in srgb, var(--accent) 12%, var(--panel)); border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line)); border-radius: 14px; padding: 12px 16px; margin-bottom: 14px; }
+.plan-label { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: #ffb08f; }
+.plan-label .ico { width: 16px; height: 16px; }
+.plan-block p { margin: 4px 0 2px; font: 700 20px/1.25 var(--serif); }
+.plan-links { font-size: 14px; color: var(--ink-3); }
+.plan-for { margin: -10px 0 16px; font: italic 500 18px var(--serif); color: var(--ink-2); }
+.plan-preview { margin: 4px 0 16px; padding: 12px 14px; border-radius: 12px; background: var(--panel); font: 700 19px/1.3 var(--serif); }
+.plan-preview::before { content: "Your plan: "; font: 400 15px var(--sans); color: var(--ink-3); }
+.seg.days > div { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.seg.days > div::-webkit-scrollbar { display: none; }
+.seg.days label { flex: none; }
+.seg.days span { min-width: 86px; padding: 6px 12px; }
+.seg span small { display: block; font-weight: 400; font-size: 12.5px; opacity: .8; margin-top: 2px; }
+.upcoming { margin-top: 26px; }
+.upcoming p { margin: 0 0 8px; color: var(--ink-2); font-size: 15px; }
+.upcoming strong { color: var(--ink); font-family: var(--serif); }
+.done-today + .upcoming { text-align: left; }
+.kf-planned { display: block; margin-top: 4px; font: italic 500 12px var(--serif); color: #ffb08f; }
+.kcard.mid .kf-planned { display: none; }

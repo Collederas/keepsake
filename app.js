@@ -148,7 +148,7 @@ const state = {
   cards: store.get('ks.cards', []),
   day: store.get('ks.day', null),
   settings: Object.assign({
-    sound: true, name: '', onboarded: false, pendingDare: null, seenSecrets: [],
+    sound: true, name: '', onboarded: false, pendingDare: null, seenSecrets: [], plans: [],
     prefs: { social: 'any', budget: 'any', time: 'any' },
     reminder: { time: '09:00', evening: true, notify: false },
   }, store.get('ks.settings', {})),
@@ -213,6 +213,11 @@ function today() {
       state.settings.pendingDare = null;
       saveSettings();
     }
+    const yesterday = dayKey(addDays(new Date(), -1));
+    const kept = plans().filter(p => p.date >= yesterday);
+    if (kept.length !== plans().length) savePlans(kept);
+    const planned = kept.find(p => p.date === key && state.byId.has(p.id) && !earnedIds().has(p.id));
+    if (planned && !state.day.custom) state.day.custom = planned.id;
     state.day.shown.push(nextPick());
     saveDay();
   }
@@ -239,7 +244,7 @@ function fitsPrefs(c) {
 function nextPick() {
   const d = state.day;
   const done = earnedIds();
-  const skip = id => d.shown.includes(id) || (d.prev && d.prev.id === id);
+  const skip = id => d.shown.includes(id) || (d.prev && d.prev.id === id) || plans().some(p => p.id === id && p.date !== d.date);
   const { cap } = courageProgress();
   const fresh = state.challenges.filter(c => !done.has(c.id) && !skip(c.id) && isUnlocked(c));
   // the first pool that still has something in it: fits your life and sits at the edge of your courage
@@ -291,10 +296,11 @@ function todayActions(ch) {
     const disabled = d.idx >= d.shown.length - 1 && left <= 0;
     secondary = `${prev}<button class="btn ghost" data-act="reroll" ${disabled ? 'disabled' : ''}>${icon('swap')} ${label}</button>`;
   }
+  const plan = todayPlan() ? '' : `<button class="btn ghost" data-act="plan" data-id="${ch.id}">${icon('calendar')} Plan it</button>`;
   return `
   <div class="actions">
     <button class="btn primary big" data-act="done" data-id="${ch.id}">I did it</button>
-    <div class="actions-row">${secondary}</div>
+    <div class="actions-row">${plan}${secondary}</div>
   </div>`;
 }
 
@@ -321,6 +327,7 @@ function cardHTML(card, url, cls = '', tag = 'div') {
           <span class="kf-body">
             <span class="kf-title">${esc(ch.title)}</span>
             ${story}
+            ${card.planned ? '<span class="kf-planned">Planned and done</span>' : ''}
           </span>
           <span class="kf-foot">
             <span class="kf-rarity">${r ? `${'★'.repeat(r)}<span class="rn"> ${RARITY[r].name}</span>` : ''}</span>
@@ -402,13 +409,13 @@ function renderToday() {
         <h2>See you tomorrow.</h2>
         <p>Your next challenge unlocks in <span class="countdown" id="countdown"></span>.</p>
         <button class="btn" data-goto="deck">Look ahead in the deck</button>
-      </div>`;
+      </div>${upcomingHTML()}`;
     fillTodayCard(el, earned);
     tickCountdown();
   } else {
     const ch = currentChallenge();
     const daredBy = d.dare && d.dare.id === ch.id ? `<p class="dared-by">Dared by ${esc(d.dare.from || 'a friend')}</p>` : '';
-    el.innerHTML = `${header}${dareNote}${prevNote}${courageHTML()}${daredBy}${questHTML(ch)}${todayActions(ch)}`;
+    el.innerHTML = `${header}${dareNote}${prevNote}${courageHTML()}${daredBy}${planBlockHTML(ch)}${questHTML(ch)}${todayActions(ch)}${upcomingHTML()}`;
   }
   syncReminder();
 }
@@ -550,16 +557,23 @@ function syncReminder() {
   if (!d) return;
   const ch = state.byId.get(currentId(d));
   const r = state.settings.reminder;
-  const meta = { notify: r.notify, time: r.time, evening: r.evening, date: d.date, title: ch ? ch.title : '', earned: !!d.earned };
+  const tp = plans().find(p => p.date === d.date && p.id === currentId(d));
+  const meta = { notify: r.notify, time: r.time, evening: r.evening, date: d.date, title: ch ? ch.title : '', earned: !!d.earned,
+    plan: tp ? { time: tp.time, where: tp.where } : null };
   idbDo('readwrite', s => s.put(meta, 'reminder'), 'meta').catch(() => {});
   reminderTimers.forEach(clearTimeout);
   reminderTimers = [];
   if (!r.notify || !('Notification' in window) || Notification.permission !== 'granted' || !ch) return;
   const until = hhmm => { const [h, m] = hhmm.split(':').map(Number); const t = new Date(); t.setHours(h, m, 0, 0); return t - Date.now(); };
   const morning = until(r.time);
-  if (morning > 0 && !d.earned) reminderTimers.push(setTimeout(() => showNote("Today's challenge", ch.title, 'keepsake-morning'), morning));
-  const evening = until(EVENING_TIME);
-  if (r.evening && evening > 0) {
+  if (morning > 0 && !d.earned && !tp) reminderTimers.push(setTimeout(() => showNote("Today's challenge", ch.title, 'keepsake-morning'), morning));
+  const planned = tp ? until(tp.time) : -1;
+  if (planned > 0 && !d.earned) {
+    reminderTimers.push(setTimeout(() => showNote(`It's time: ${ch.title}`, tp.where ? `At ${tp.where}. You planned this.` : 'You planned this for now.', 'keepsake-plan'), planned));
+  }
+  // the evening check-in waits until an hour after a planned time
+  const evening = tp ? Math.max(until(EVENING_TIME), planned + 60 * 60 * 1000) : until(EVENING_TIME);
+  if (r.evening && evening > 0 && evening < until('23:59')) {
     reminderTimers.push(setTimeout(() => { if (!today().earned) showNote('Did you do it?', `Seal ${ch.title} in your Book before midnight.`, 'keepsake-evening'); }, evening));
   }
 }
@@ -583,6 +597,136 @@ function calendarFile() {
   ];
   download(new Blob([lines.join('\r\n')], { type: 'text/calendar' }), 'keepsake-reminders.ics');
   toast('Open the file to add the reminders to your calendar');
+}
+
+/* ================= plans: when and where ================= */
+// Deciding in advance when and where you'll do something ("implementation intentions")
+// makes follow-through far more likely. Plans live in settings.plans as { id, date, time, where }.
+const plans = () => state.settings.plans || (state.settings.plans = []);
+const planFor = (id, date) => plans().find(p => p.id === id && (!date || p.date === date));
+const todayPlan = () => { const d = today(); return plans().find(p => p.date === d.date && p.id === currentId(d)); };
+const upcomingPlans = () => plans().filter(p => p.date > dayKey()).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+function savePlans(list) { state.settings.plans = list; saveSettings(); }
+
+function fmtTime(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  const t = new Date(); t.setHours(h, m, 0, 0);
+  return t.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+function dayPhrase(date, time) {
+  const k = dayKey();
+  if (date === k) return Number(time.split(':')[0]) >= 18 ? 'Tonight' : 'Today';
+  if (date === dayKey(addDays(new Date(), 1))) return 'Tomorrow';
+  return `On ${new Date(date + 'T12:00').toLocaleDateString(undefined, { weekday: 'long' })}`;
+}
+const planSentence = p => `${dayPhrase(p.date, p.time)} at ${fmtTime(p.time)}${p.where ? `, at ${p.where}` : ''}.`;
+
+function planSheetHTML(ch) {
+  const d = today();
+  const existing = planFor(ch.id);
+  const now = new Date();
+  const hour = now.getHours();
+  const days = [];
+  for (let i = d.earned ? 1 : 0; i < 7; i++) days.push(dayKey(addDays(now, i)));
+  const defaultDate = existing ? existing.date : hour >= 21 || d.earned ? days[d.earned ? 0 : 1] : days[0];
+  const defaultTime = existing ? existing.time : hour < 18 || hour >= 21 ? '18:00' : '21:00';
+  const dayLabel = k => k === dayKey() ? 'Today' : k === dayKey(addDays(now, 1)) ? 'Tomorrow'
+    : new Date(k + 'T12:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
+  const quick = [['12:30', 'Lunchtime'], ['18:00', 'After work'], ['21:00', 'Tonight']];
+  return `
+    <h2 class="proof-title">When and where?</h2>
+    <p class="plan-for">${esc(ch.title)}</p>
+    <fieldset class="seg days"><legend>Day</legend>
+      <div>${days.map(k => `<label><input type="radio" name="plan-day" value="${k}" ${k === defaultDate ? 'checked' : ''}><span>${dayLabel(k)}</span></label>`).join('')}</div>
+    </fieldset>
+    <fieldset class="seg"><legend>Time</legend>
+      <div>${quick.map(([v, l]) => `<label><input type="radio" name="plan-quick" value="${v}" ${v === defaultTime ? 'checked' : ''}><span>${l}<small>${fmtTime(v)}</small></span></label>`).join('')}</div>
+    </fieldset>
+    <label class="field inline"><span class="field-label">Or pick a time</span><input type="time" id="plan-time" value="${defaultTime}"></label>
+    <label class="field"><span class="field-label">Where? <span class="opt">Optional</span></span>
+      <input id="plan-where" maxlength="40" placeholder="e.g. Café Lux" value="${esc(existing ? existing.where : '')}" autocomplete="off"></label>
+    <p class="plan-preview" id="plan-preview" aria-live="polite"></p>
+    <div class="actions">
+      <button class="btn primary big" data-act="plan-commit" data-id="${ch.id}">Commit to it</button>
+      <div class="actions-row">
+        <button class="btn" data-act="plan-calendar" data-id="${ch.id}">${icon('calendar')} Add to calendar</button>
+        <button class="btn" data-act="plan-tell" data-id="${ch.id}">${icon('share')} Tell a friend</button>
+      </div>
+    </div>
+    <p class="sheet-note">People who decide exactly when and where are much more likely to follow through.</p>`;
+}
+function planForm(id) {
+  const day = $('input[name="plan-day"]:checked');
+  return { id, date: day ? day.value : dayKey(), time: $('#plan-time').value || '18:00', where: $('#plan-where').value.trim().slice(0, 40) };
+}
+function updatePlanPreview() {
+  const el = $('#plan-preview');
+  if (el) el.textContent = planSentence(planForm(''));
+}
+function openPlanSheet(ch) {
+  openSheet(planSheetHTML(ch), 'When and where?');
+  updatePlanPreview();
+}
+// Saves a plan; a plan for today makes it today's challenge, a plan for another day frees up today.
+function commitPlan(p) {
+  const d = today();
+  savePlans([...plans().filter(x => x.id !== p.id && x.date !== p.date), p]);
+  if (p.date === d.date) {
+    if (!d.earned && currentId(d) !== p.id) d.custom = p.id;
+  } else if (!d.earned && currentId(d) === p.id) {
+    if (d.custom === p.id) d.custom = null;
+    else d.shown[d.idx] = nextPick();
+  }
+  saveDay();
+  closeDeckSheets();
+  show('today');
+  toast(`Planned: ${planSentence(p)}`);
+}
+function cancelPlan(id) {
+  savePlans(plans().filter(p => p.id !== id));
+  renderToday();
+  toast('Plan cancelled');
+}
+const icsText = t => String(t).replace(/[\\;,]/g, m => '\\' + m);
+function planCalendarFile(p) {
+  const ch = state.byId.get(p.id);
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+  const lines = [
+    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Keepsake//Plan//EN', 'CALSCALE:GREGORIAN',
+    'BEGIN:VEVENT', `UID:keepsake-plan-${p.id}-${p.date}@keepsake`, `DTSTAMP:${stamp}`,
+    `DTSTART:${p.date.replace(/-/g, '')}T${p.time.replace(':', '')}00`, `DURATION:PT${Math.max(15, Math.min(ch.minutes, 240))}M`,
+    `SUMMARY:${icsText(`Keepsake: ${ch.title}`)}`, ...(p.where ? [`LOCATION:${icsText(p.where)}`] : []),
+    `DESCRIPTION:${icsText(`${ch.prompt} When it's done, seal it in Keepsake:`)} ${APP_URL}`, `URL:${APP_URL}`,
+    'BEGIN:VALARM', 'ACTION:DISPLAY', 'TRIGGER:-PT15M', `DESCRIPTION:${icsText(ch.title)}`, 'END:VALARM',
+    'END:VEVENT', 'END:VCALENDAR',
+  ];
+  download(new Blob([lines.join('\r\n')], { type: 'text/calendar' }), `keepsake-${p.id}.ics`);
+}
+async function tellFriend(p) {
+  const ch = state.byId.get(p.id);
+  const when = `${dayPhrase(p.date, p.time).toLowerCase()} at ${fmtTime(p.time)}${p.where ? ` at ${p.where}` : ''}`;
+  const text = `I'm doing “${ch.title}” ${when}. Hold me to it.`;
+  try {
+    if (navigator.share) { await navigator.share({ title: 'Keepsake', text, url: dareLink(ch.id) }); return; }
+  } catch (e) { if (e && e.name === 'AbortError') return; }
+  copyText(`${text} ${dareLink(ch.id)}`, 'Copied. Send it to a friend.');
+}
+function planBlockHTML(ch) {
+  const p = todayPlan();
+  if (!p) return '';
+  return `
+    <aside class="plan-block">
+      <span class="plan-label">${icon('calendar')} Your plan</span>
+      <p>${esc(planSentence(p))}</p>
+      <span class="plan-links"><button class="link" data-act="plan" data-id="${ch.id}">Change</button> · <button class="link" data-act="plan-cancel" data-id="${ch.id}">Cancel plan</button></span>
+    </aside>`;
+}
+function upcomingHTML() {
+  const list = upcomingPlans().filter(p => state.byId.has(p.id));
+  if (!list.length) return '';
+  return `<div class="upcoming"><h3 class="sub">Coming up</h3>${list.map(p => `
+    <p><strong>${esc(state.byId.get(p.id).title)}</strong> · ${esc(planSentence(p))}
+      <button class="link" data-act="plan" data-id="${p.id}">Change</button></p>`).join('')}</div>`;
 }
 
 /* ================= dares + sharing ================= */
@@ -673,8 +817,9 @@ function renderDeckList() {
 function deckActions(ch) {
   const d = today();
   const card = state.cards.find(c => c.challengeId === ch.id);
-  const dare = `<button class="btn ghost big" data-act="dare-friend" data-id="${ch.id}">${icon('share')} Dare a friend</button>`;
-  if (card) return `<div class="actions"><button class="btn big" data-view="${card.id}">See your card</button>${dare}</div>`;
+  const dare = `<button class="btn ghost big" data-act="plan" data-id="${ch.id}">${icon('calendar')} ${planFor(ch.id) ? 'Change plan' : 'Plan it'}</button>`
+    + `<button class="btn ghost big" data-act="dare-friend" data-id="${ch.id}">${icon('share')} Dare a friend</button>`;
+  if (card) return `<div class="actions"><button class="btn big" data-view="${card.id}">See your card</button><button class="btn ghost big" data-act="dare-friend" data-id="${ch.id}">${icon('share')} Dare a friend</button></div>`;
   if (d.earned) return `<div class="actions">${dare}</div><p class="sheet-note">You've sealed today's card. Come back tomorrow and swap this one in.</p>`;
   if (currentId(d) === ch.id) return `<div class="actions"><button class="btn primary big" data-act="done" data-id="${ch.id}">I did it</button>${dare}</div><p class="sheet-note">This is today's challenge.</p>`;
   return `<div class="actions"><button class="btn primary big" data-act="pick" data-id="${ch.id}">Make this today's challenge</button>${dare}</div>
@@ -847,7 +992,9 @@ async function seal() {
     photo: !!p.blob,
     revealed: false,
     daredBy: dare && dare.id === ch.id ? (dare.from || 'a friend') : null,
+    planned: plans().some(x => x.id === ch.id && x.date <= today().date),
   };
+  if (card.planned) savePlans(plans().filter(x => x.id !== ch.id));
   if (p.blob) photoOk = await putPhoto(card.id, p.blob);
   state.cards.push(card);
   saveCards();
@@ -1012,6 +1159,7 @@ const stage = {
   opener: null,
   open() {
     this.opener = document.activeElement;
+    $('#toast').classList.remove('show');
     $('#stage').hidden = false;
     $('.rays').classList.remove('on');
     $('#rarity-banner').className = 'rarity-banner';
@@ -1291,6 +1439,11 @@ async function renderCardCanvas(card) {
     for (const line of wrap(x, `“${card.story}”`, W - 128, 2)) { x.fillText(line, 64, y); y += 48; }
   }
 
+  if (card.planned) {
+    x.fillStyle = '#ffb08f';
+    x.font = 'italic 500 32px Fraunces, Georgia, serif';
+    x.fillText('Planned and done', 64, H - 160);
+  }
   x.fillStyle = 'rgba(255,255,255,0.08)';
   x.fillRect(64, H - 128, W - 128, 2);
   x.font = `700 30px ${SANS}`;
@@ -1491,6 +1644,27 @@ function onAction(t) {
       state.incomingDare = null;
       renderToday();
       break;
+    case 'plan':
+      openPlanSheet(state.byId.get(t.dataset.id));
+      break;
+    case 'plan-commit':
+      commitPlan(planForm(t.dataset.id));
+      break;
+    case 'plan-calendar': {
+      const p = planForm(t.dataset.id);
+      planCalendarFile(p);
+      commitPlan(p);
+      break;
+    }
+    case 'plan-tell': {
+      const p = planForm(t.dataset.id);
+      commitPlan(p);
+      tellFriend(p);
+      break;
+    }
+    case 'plan-cancel':
+      cancelPlan(t.dataset.id);
+      break;
     case 'dare-friend':
       shareDare(state.byId.get(t.dataset.id));
       break;
@@ -1610,11 +1784,18 @@ function bind() {
   document.addEventListener('input', e => {
     if (e.target.id === 'deck-search') { state.deckQuery = e.target.value; renderDeckList(); }
     if (e.target.id === 'set-name') { state.settings.name = e.target.value.trim().slice(0, 24); saveSettings(); }
+    if (e.target.id === 'plan-where') updatePlanPreview();
   });
   document.addEventListener('change', e => {
     const t = e.target;
     const r = state.settings.reminder;
-    if (t.dataset.pref) { state.settings.prefs[t.dataset.pref] = t.value; saveSettings(); }
+    if (t.name === 'plan-quick') { $('#plan-time').value = t.value; updatePlanPreview(); }
+    else if (t.id === 'plan-time') {
+      document.querySelectorAll('input[name="plan-quick"]').forEach(q => { q.checked = q.value === t.value; });
+      updatePlanPreview();
+    }
+    else if (t.name === 'plan-day') updatePlanPreview();
+    else if (t.dataset.pref) { state.settings.prefs[t.dataset.pref] = t.value; saveSettings(); }
     else if (t.id === 'reminder-time' && t.value) { r.time = t.value; saveSettings(); syncReminder(); }
     else if (t.id === 'reminder-evening') { r.evening = t.checked; saveSettings(); syncReminder(); }
   });
