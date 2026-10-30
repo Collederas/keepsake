@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'keepsake-v5';
+const CACHE = 'keepsake-v6';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'data/challenges.json', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -70,14 +70,14 @@ async function maybeRemind() {
     // a plan replaces the generic morning nudge with one at the planned time
     if (mins >= toMinutes(m.plan.time) && shown.plan !== key) {
       await self.registration.showNotification(`It's time: ${m.title}`, {
-        ...NOTE, tag: 'keepsake-plan', body: m.plan.where ? `At ${m.plan.where}. You planned this.` : 'You planned this for now.',
+        ...NOTE, tag: 'keepsake-plan', body: m.plan.where ? `At ${m.plan.where}, like you planned.` : 'This is the time you picked.',
       });
       shown.plan = key;
       did = true;
     }
   } else if (mins >= toMinutes(m.time) && shown.morning !== key) {
     await self.registration.showNotification("Today's challenge", {
-      ...NOTE, tag: 'keepsake-morning', body: fresh && m.title ? m.title : 'A new challenge is waiting for you.',
+      ...NOTE, tag: 'keepsake-morning', body: fresh && m.title ? m.title : "There's a new challenge waiting.",
     });
     shown.morning = key;
     did = true;
@@ -85,7 +85,7 @@ async function maybeRemind() {
   const planPending = fresh && m.plan && mins < toMinutes(m.plan.time) + 60;
   if (!did && !planPending && m.evening && mins >= toMinutes('20:00') && shown.evening !== key) {
     await self.registration.showNotification('Did you do it?', {
-      ...NOTE, tag: 'keepsake-evening', body: fresh && m.title ? `Seal ${m.title} in your Book before midnight.` : "Today's card is still waiting.",
+      ...NOTE, tag: 'keepsake-evening', body: fresh && m.title ? `There's still time to do ${m.title} today.` : "Today's challenge is still waiting.",
     });
     shown.evening = key;
   }
