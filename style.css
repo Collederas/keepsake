@@ -410,3 +410,10 @@ button.kcard { border: 0; padding: 0; background: none; color: inherit; font: in
 .done-today + .upcoming { text-align: left; }
 .kf-planned { display: block; margin-top: 4px; font: italic 500 12px var(--serif); color: #ffb08f; }
 .kcard.mid .kf-planned { display: none; }
+
+/* ---------- easy version ---------- */
+.quest.is-easy .prompt { font-style: normal; }
+.easy-tag { font-weight: 700; color: var(--paper-accent); }
+details.easier .btn { margin-top: 10px; min-height: 44px; background: transparent; border-color: rgba(42,33,24,.25); color: var(--paper-ink); }
+div.easier { margin-top: 14px; border-top: 1px dashed rgba(42,33,24,.2); padding-top: 10px; }
+div.easier .link { color: var(--paper-accent); }

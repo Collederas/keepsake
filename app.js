@@ -197,6 +197,8 @@ function updateDeckBadge() {
   $('.tab[data-screen="deck"]').classList.toggle('has-new', newSecrets().length > 0);
 }
 const currentId = d => d.custom || d.shown[d.idx];
+// going easy is decided upfront and only sticks to the challenge it was chosen for
+const isEasy = d => d.easyId === currentId(d);
 
 function today() {
   const key = dayKey();
@@ -204,7 +206,7 @@ function today() {
   if (old && old.idx == null) old.idx = old.shown.length - 1; // older saved shape
   if (!old || old.date !== key) {
     // a challenge finished after midnight can still be sealed the next day
-    const prev = old && old.date === dayKey(addDays(new Date(), -1)) && !old.earned ? { id: currentId(old) } : null;
+    const prev = old && old.date === dayKey(addDays(new Date(), -1)) && !old.earned ? { id: currentId(old), easy: isEasy(old) } : null;
     state.day = { date: key, shown: [], idx: 0, custom: null, earned: null, prev };
     // a dare accepted after today's card was sealed becomes the next day's challenge
     const pd = state.settings.pendingDare;
@@ -267,20 +269,27 @@ function currentChallenge() {
 }
 
 /* ================= rendering: challenge ================= */
-function questHTML(ch) {
-  const pips = [1, 2, 3, 4, 5].map(i => `<i class="${i <= ch.courage ? 'on' : ''}"></i>`).join('');
+function questHTML(ch, { today: onToday = false, easy = false } = {}) {
+  const courage = easy ? Math.max(1, ch.courage - 1) : ch.courage;
+  const pips = [1, 2, 3, 4, 5].map(i => `<i class="${i <= courage ? 'on' : ''}"></i>`).join('');
+  const easier = !onToday
+    ? `<details class="easier"><summary>Not feeling it? There's an easier version</summary><p>${esc(ch.easier)}</p></details>`
+    : easy
+      ? `<div class="easier"><button class="link" data-act="easy-off">Switch back to the full challenge</button></div>`
+      : `<details class="easier"><summary>Not feeling it? Try the easier version</summary><p>${esc(ch.easier)}</p>
+          <button class="btn" data-act="easy-on">Go easy today</button></details>`;
   return `
-  <article class="quest">
+  <article class="quest${easy ? ' is-easy' : ''}">
     <div class="quest-head">
-      <span>${CATS[ch.category].label}</span>
-      <span class="courage" role="img" aria-label="Courage ${ch.courage} of 5">Courage ${pips}</span>
+      <span>${CATS[ch.category].label}${easy ? ' · <b class="easy-tag">Easy version</b>' : ''}</span>
+      <span class="courage" role="img" aria-label="Courage ${courage} of 5">Courage ${pips}</span>
     </div>
     <h2>${esc(ch.title)}</h2>
-    <p class="prompt">${esc(ch.prompt)}</p>
+    <p class="prompt">${esc(easy ? ch.easier : ch.prompt)}</p>
     <p class="why">${esc(ch.why)}</p>
     <p class="meta">${fmtMinutes(ch.minutes)} · ${COST[ch.cost]} · ${ch.solo ? 'Solo' : 'Bring someone'}</p>
     ${ch.safety ? `<div class="safety">${esc(ch.safety)}</div>` : ''}
-    <details class="easier"><summary>Not feeling it? Try the easier version</summary><p>${esc(ch.easier)}</p></details>
+    ${easier}
   </article>`;
 }
 
@@ -415,7 +424,7 @@ function renderToday() {
   } else {
     const ch = currentChallenge();
     const daredBy = d.dare && d.dare.id === ch.id ? `<p class="dared-by">Dared by ${esc(d.dare.from || 'a friend')}</p>` : '';
-    el.innerHTML = `${header}${dareNote}${prevNote}${courageHTML()}${daredBy}${planBlockHTML(ch)}${questHTML(ch)}${todayActions(ch)}${upcomingHTML()}`;
+    el.innerHTML = `${header}${dareNote}${prevNote}${courageHTML()}${daredBy}${planBlockHTML(ch)}${questHTML(ch, { today: true, easy: isEasy(d) })}${todayActions(ch)}${upcomingHTML()}`;
   }
   syncReminder();
 }
@@ -913,15 +922,15 @@ function openSheet(html, label, { over = false } = {}) {
 const closeDeckSheets = () => document.querySelectorAll('.deck-sheet').forEach(s => s.remove());
 
 /* ================= proof flow ================= */
-async function openProof(challengeId, { kind = 'today', edit = null } = {}) {
+async function openProof(challengeId, { kind = 'today', edit = null, easy = false } = {}) {
   const ch = state.byId.get(challengeId);
-  state.pending = { challengeId, kind, edit, blob: null, keepPhoto: !!(edit && edit.photo), previewUrl: null, ownUrl: false, opener: document.activeElement };
+  state.pending = { challengeId, kind, edit, easy, blob: null, keepPhoto: !!(edit && edit.photo), previewUrl: null, ownUrl: false, opener: document.activeElement };
   if (edit && edit.photo) state.pending.previewUrl = await photoUrl(edit);
   $('#proof-title').textContent = edit ? `Edit card #${pad(edit.no)}` : ch.title;
   $('#story-input').value = edit ? edit.story : '';
   $('#place-input').value = edit ? edit.place : '';
-  $('#easier-input').checked = false;
-  $('#easier-row').hidden = !!edit || ch.courage <= 1;
+  $('#upgrade-input').checked = false;
+  $('#upgrade-row').hidden = !!edit || !easy || ch.courage <= 1;
   $('#seal-btn').textContent = edit ? 'Save changes' : 'Make my card';
   $('#photo-input').value = '';
   updateProof();
@@ -976,7 +985,7 @@ async function seal() {
     return;
   }
 
-  const easier = $('#easier-input').checked && ch.courage > 1;
+  const easier = p.easy && !$('#upgrade-input').checked && ch.courage > 1;
   const dare = today().dare;
   const capBefore = courageProgress().cap;
   const secretsBefore = unlockedSecretIds();
@@ -1578,10 +1587,20 @@ function onAction(t) {
     case 'done':
       if (d.earned) return;
       closeDeckSheets();
-      openProof(t.dataset.id, { kind: 'today' });
+      openProof(t.dataset.id, { kind: 'today', easy: isEasy(d) && currentId(d) === t.dataset.id });
       break;
     case 'claim-prev':
-      if (d.prev) openProof(d.prev.id, { kind: 'prev' });
+      if (d.prev) openProof(d.prev.id, { kind: 'prev', easy: !!d.prev.easy });
+      break;
+    case 'easy-on':
+      d.easyId = currentId(d);
+      saveDay();
+      renderToday();
+      break;
+    case 'easy-off':
+      d.easyId = null;
+      saveDay();
+      renderToday();
       break;
     case 'dismiss-prev':
       d.prev = null;
