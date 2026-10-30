@@ -17,7 +17,6 @@ Go to an open mic. Take a bus to nowhere. Ask a stranger over 60 for the best ad
   - **Notifications:** in browsers that support background checks (Chrome on Android, installed app), and while the app is open.
   - **A calendar file** with repeating events, which works everywhere and is always on time.
 - **Busy?** Pause all reminders for 1 week, 2 weeks or until you're back. Today then shows a calm screen with an optional 2-minute challenge, and coming back starts with an easy one. 15 tiny challenges (`"tiny": true`) cover busy days.
-- **Going easy.** "Go easy this time" switches to a challenge's easier version upfront. The card keeps its full colour and gets an "Easy version" mark, and "I did the full challenge after all" removes the mark. Easy versions don't count toward courage.
 - **When and where.** "Plan it" asks when (today or any day this week, at a time you choose), where, and what might get in the way. You can tap a common obstacle (too tired, no time, weather…) to get a suggested "If it happens, I'll…" plan to edit, or write your own. Today then shows the plan as a sentence ("Tonight at 9:00 PM, at Café Lux."). The reminder moves to that exact time, and you can add the plan to your calendar or send it to a friend ("Hold me to it"). A challenge planned for another day becomes that day's challenge. Cards sealed from a plan say "Planned and done".
 - **Installable.** Keepsake is a web app you can add to your home screen (a PWA), and it works offline.
 - **Secret challenges.** 17 hidden challenges show in the Deck as locked cards with a hint, like hidden achievements. They unlock after a particular challenge (Take the Mic → Encore), 5 cards in one category, courage level 5, 25 cards, cards on 7 different days, a Legendary card, or a completed dare. A dare link can open a secret early. Their conditions live in the `unlock` field of `data/challenges.json`.
@@ -27,7 +26,7 @@ Go to an open mic. Take a bus to nowhere. Ask a stranger over 60 for the best ad
 
 - **Backup and restore.** Settings → Your cards saves one file with every card and photo, and restores it on any phone. After the third card, Today suggests making one, because cards only live on the phone (and Safari on iPhone can clear a site's data after about a week away unless it's on the Home Screen).
 - **Feedback.** "Send feedback" in Settings and "How did that go? Tell me" under every finished card open an email to the maker, with the version, device, rhythm and card count filled in.
-- **Stats, opt-in only.** The app counts things on the phone: days opened, cards made (easy, foil, planned, dared), swaps and which challenges were swapped away, plans, Busy, reveal skips, settings and help visits. Nothing is sent automatically. "Share my stats" shows the exact text first, then opens an email the tester sends themselves. It never includes anything they wrote: no stories, places, names, Day Zero wish or photos. Today asks once after the second card and once after the sixth.
+- **Stats, opt-in only.** The app counts things on the phone: days opened, cards made (foil, planned, dared), swaps and which challenges were swapped away, plans, Busy, reveal skips, settings and help visits. Nothing is sent automatically. "Share my stats" shows the exact text first, then opens an email the tester sends themselves. It never includes anything they wrote: no stories, places, names, Day Zero wish or photos. Today asks once after the second card and once after the sixth.
 - **Link preview.** Sharing the link in a chat shows the title, a line of description and `og.jpg`.
 
 Real push notifications, sent while the app is closed and on time on every platform, need a small server to send them. This prototype doesn't have one yet.
@@ -65,7 +64,7 @@ It also works on GitHub Pages as is. All data stays on the device: cards are sto
   "minutes": 120,
   "prompt": "Find an open mic this week…",
   "why": "Nothing rewires your fear thermostat like being seen on purpose.",
-  "easier": "Go as audience and talk to one performer afterwards.",  // drops the card one rarity
+  "easier": "Go as audience and talk to one performer afterwards.",  // not shown in the app (the easy version was removed)
   "safety": null
   // optional: "tiny": true (busy days), "starter": true (first challenges for new people),
   // "secret": true + "unlock" (hidden until earned), "retired": true (kept only so earned cards still show)
@@ -79,4 +78,4 @@ The picker keeps things varied: after a swap, and for the next few weeks, it avo
 The basic idea of "daily real-life challenge + streak + XP" is already crowded. There are about 20 small indie apps doing it: Diss Comfort, nudge., Introvert: Daily Courage, Mandate, Solo Quest XP, Errant, Hyper Challenges, Sidequest, Rejection Therapy, Rejecto, TSBL, Bucketer and others. None of them has broken out. Their weak spots are the same two things this project bets on:
 
 1. **Generic rewards.** They use XP, badges and streaks, the same as every habit tracker. Keepsake's reward is a *memory artifact*: your photo and your words on a numbered card whose rarity comes from how much courage the challenge took. That card is worth keeping and sharing.
-2. **Bland challenge lists.** They are either AI-generated or generic comfort-zone lists. Keepsake treats the challenge deck as an editorial product: each challenge has a voice, a reason, an easier version and a safety note.
+2. **Bland challenge lists.** They are either AI-generated or generic comfort-zone lists. Keepsake treats the challenge deck as an editorial product: each challenge has a voice, a reason and, where needed, a safety note.
