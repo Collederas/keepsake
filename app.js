@@ -24,8 +24,8 @@ const EVENING_TIME = '20:00';
 const APP_URL = location.origin + location.pathname;
 const SANS = '"Atkinson Hyperlegible Next", "Atkinson Hyperlegible", sans-serif';
 const PREFS = {
-  social: { label: 'Solo or with people?', options: [['solo', 'Mostly solo'], ['any', 'Either'], ['social', 'Bring on people']] },
-  budget: { label: 'Budget', options: [['free', 'Free only'], ['some', 'A little'], ['any', 'Whatever it takes']] },
+  social: { label: 'Solo or with people?', options: [['solo', 'Mostly solo'], ['any', 'Either'], ['social', 'With people']] },
+  budget: { label: 'Budget', options: [['free', 'Free only'], ['some', 'A little'], ['any', "Don't mind"]] },
   time:   { label: 'Time on a normal day', options: [['short', 'Under 30 min'], ['hour', 'About an hour'], ['any', 'Hours, sometimes']] },
 };
 // courage grows by doing: three cards at your current level unlock the next one
@@ -178,13 +178,13 @@ function unlockInfo(ch) {
   }
   if (u.category) {
     const n = state.cards.filter(c => (state.byId.get(c.challengeId) || {}).category === u.category).length;
-    return result(n, u.count, `Seal ${u.count} ${CATS[u.category].label} challenges`);
+    return result(n, u.count, `Do ${u.count} ${CATS[u.category].label} challenges`);
   }
-  if (u.cards) return result(state.cards.length, u.cards, `Fill your Book with ${u.cards} cards`);
+  if (u.cards) return result(state.cards.length, u.cards, `Collect ${u.cards} cards`);
   if (u.level) return result(courageProgress().cap, u.level, `Reach courage level ${u.level}`);
-  if (u.days) return result(new Set(state.cards.map(c => dayKey(new Date(c.date)))).size, u.days, `Seal cards on ${u.days} different days`);
-  if (u.rarity) return result(state.cards.some(c => c.rarity >= u.rarity && c.revealed !== false) ? 1 : 0, 1, `Earn a ${RARITY[u.rarity].name} card`);
-  if (u.dare) return result(state.cards.some(c => c.daredBy) ? 1 : 0, 1, 'Complete a dare from a friend');
+  if (u.days) return result(new Set(state.cards.map(c => dayKey(new Date(c.date)))).size, u.days, `Do challenges on ${u.days} different days`);
+  if (u.rarity) return result(state.cards.some(c => c.rarity >= u.rarity && c.revealed !== false) ? 1 : 0, 1, `Get a ${RARITY[u.rarity].name} card`);
+  if (u.dare) return result(state.cards.some(c => c.daredBy) ? 1 : 0, 1, 'Do a dare from a friend');
   return { unlocked: true };
 }
 const isUnlocked = ch => unlockInfo(ch).unlocked;
@@ -197,6 +197,8 @@ function updateDeckBadge() {
   $('.tab[data-screen="deck"]').classList.toggle('has-new', newSecrets().length > 0);
 }
 const currentId = d => d.custom || d.shown[d.idx];
+// going easy is decided upfront and only sticks to the challenge it was chosen for
+const isEasy = d => d.easyId === currentId(d);
 
 function today() {
   const key = dayKey();
@@ -204,7 +206,7 @@ function today() {
   if (old && old.idx == null) old.idx = old.shown.length - 1; // older saved shape
   if (!old || old.date !== key) {
     // a challenge finished after midnight can still be sealed the next day
-    const prev = old && old.date === dayKey(addDays(new Date(), -1)) && !old.earned ? { id: currentId(old) } : null;
+    const prev = old && old.date === dayKey(addDays(new Date(), -1)) && !old.earned ? { id: currentId(old), easy: isEasy(old) } : null;
     state.day = { date: key, shown: [], idx: 0, custom: null, earned: null, prev };
     // a dare accepted after today's card was sealed becomes the next day's challenge
     const pd = state.settings.pendingDare;
@@ -267,20 +269,27 @@ function currentChallenge() {
 }
 
 /* ================= rendering: challenge ================= */
-function questHTML(ch) {
-  const pips = [1, 2, 3, 4, 5].map(i => `<i class="${i <= ch.courage ? 'on' : ''}"></i>`).join('');
+function questHTML(ch, { today: onToday = false, easy = false } = {}) {
+  const courage = easy ? Math.max(1, ch.courage - 1) : ch.courage;
+  const pips = [1, 2, 3, 4, 5].map(i => `<i class="${i <= courage ? 'on' : ''}"></i>`).join('');
+  const easier = !onToday
+    ? `<details class="easier"><summary>Not feeling it? There's an easier version</summary><p>${esc(ch.easier)}</p></details>`
+    : easy
+      ? `<div class="easier"><button class="link" data-act="easy-off">Switch back to the full challenge</button></div>`
+      : `<details class="easier"><summary>Not feeling it? Try the easier version</summary><p>${esc(ch.easier)}</p>
+          <button class="btn" data-act="easy-on">Go easy today</button></details>`;
   return `
-  <article class="quest">
+  <article class="quest${easy ? ' is-easy' : ''}">
     <div class="quest-head">
-      <span>${CATS[ch.category].label}</span>
-      <span class="courage" role="img" aria-label="Courage ${ch.courage} of 5">Courage ${pips}</span>
+      <span>${CATS[ch.category].label}${easy ? ' · <b class="easy-tag">Easy version</b>' : ''}</span>
+      <span class="courage" role="img" aria-label="Courage ${courage} of 5">Courage ${pips}</span>
     </div>
     <h2>${esc(ch.title)}</h2>
-    <p class="prompt">${esc(ch.prompt)}</p>
+    <p class="prompt">${esc(easy ? ch.easier : ch.prompt)}</p>
     <p class="why">${esc(ch.why)}</p>
     <p class="meta">${fmtMinutes(ch.minutes)} · ${COST[ch.cost]} · ${ch.solo ? 'Solo' : 'Bring someone'}</p>
     ${ch.safety ? `<div class="safety">${esc(ch.safety)}</div>` : ''}
-    <details class="easier"><summary>Too much today? Try the easier version</summary><p>${esc(ch.easier)}</p></details>
+    ${easier}
   </article>`;
 }
 
@@ -292,7 +301,7 @@ function todayActions(ch) {
     secondary = `<button class="btn ghost" data-act="clear-custom">${icon('prev')} Back to today's pick</button>`;
   } else {
     const prev = d.idx > 0 ? `<button class="btn ghost" data-act="prev-pick">${icon('prev')} Previous</button>` : '';
-    const label = d.idx < d.shown.length - 1 ? 'Next' : left > 0 ? `Swap it · ${left} left today` : 'No swaps left today';
+    const label = d.idx < d.shown.length - 1 ? 'Next' : left > 0 ? `Swap · ${left} left` : 'No swaps left';
     const disabled = d.idx >= d.shown.length - 1 && left <= 0;
     secondary = `${prev}<button class="btn ghost" data-act="reroll" ${disabled ? 'disabled' : ''}>${icon('swap')} ${label}</button>`;
   }
@@ -395,8 +404,8 @@ function renderToday() {
   const prevCh = d.prev && state.byId.get(d.prev.id);
   const prevNote = prevCh ? `
     <aside class="notice">
-      <div>Finished yesterday's <strong>${esc(prevCh.title)}</strong> after midnight?<br>
-        <button class="btn" data-act="claim-prev">Seal yesterday's card</button>
+      <div>Did yesterday's <strong>${esc(prevCh.title)}</strong> after midnight?<br>
+        <button class="btn" data-act="claim-prev">Add it to yesterday</button>
       </div>
       <button class="icon-btn" data-act="dismiss-prev" aria-label="Dismiss">${icon('close')}</button>
     </aside>` : '';
@@ -407,23 +416,23 @@ function renderToday() {
       <div class="done-today">
         <div class="mini-slot"></div>
         <h2>See you tomorrow.</h2>
-        <p>Your next challenge unlocks in <span class="countdown" id="countdown"></span>.</p>
-        <button class="btn" data-goto="deck">Look ahead in the deck</button>
+        <p>Next challenge in <span class="countdown" id="countdown"></span>.</p>
+        <button class="btn" data-goto="deck">Peek at the deck</button>
       </div>${upcomingHTML()}`;
     fillTodayCard(el, earned);
     tickCountdown();
   } else {
     const ch = currentChallenge();
     const daredBy = d.dare && d.dare.id === ch.id ? `<p class="dared-by">Dared by ${esc(d.dare.from || 'a friend')}</p>` : '';
-    el.innerHTML = `${header}${dareNote}${prevNote}${courageHTML()}${daredBy}${planBlockHTML(ch)}${questHTML(ch)}${todayActions(ch)}${upcomingHTML()}`;
+    el.innerHTML = `${header}${dareNote}${prevNote}${courageHTML()}${daredBy}${planBlockHTML(ch)}${questHTML(ch, { today: true, easy: isEasy(d) })}${todayActions(ch)}${upcomingHTML()}`;
   }
   syncReminder();
 }
 function courageText() {
   const { cap, count, need } = courageProgress();
   return cap >= 5
-    ? 'Courage level 5 · every challenge is open to you'
-    : `Courage level ${cap} · ${need - count} more level-${cap} challenge${need - count === 1 ? '' : 's'} to reach level ${cap + 1}`;
+    ? "Courage level 5 · everything's open"
+    : `Courage level ${cap} · ${need - count} more level-${cap} challenge${need - count === 1 ? '' : 's'} to level up`;
 }
 function courageHTML() {
   const { cap, count, need } = courageProgress();
@@ -440,14 +449,14 @@ function onboardingHTML() {
     <section class="onboard">
       <h2>One real-life challenge a day.</h2>
       <ul class="how">
-        <li>Do the day's challenge out in the real world.</li>
-        <li>Come back with a photo or a line about it.</li>
-        <li>It becomes a card in your Book.</li>
+        <li>Go do the day's challenge, out in the real world.</li>
+        <li>Come back and add a photo or a line.</li>
+        <li>It turns into a card in your Book.</li>
       </ul>
-      <p>Three quick questions, so your first challenges fit your life. You'll start gentle and unlock bolder ones as you go.</p>
+      <p>Three quick questions so the first ones actually fit your life. You'll start easy and work up to the scary stuff.</p>
       <div class="actions">
-        <button class="btn primary big" data-act="onboard-next">Set it up</button>
-        <button class="btn ghost" data-act="onboard-done">Skip, show me a challenge</button>
+        <button class="btn primary big" data-act="onboard-next">Let's go</button>
+        <button class="btn ghost" data-act="onboard-done">Skip</button>
       </div>
     </section>`;
   if (step === 1) return `
@@ -459,7 +468,7 @@ function onboardingHTML() {
   return `
     <section class="onboard">
       <h2>Want a nudge?</h2>
-      <p>A morning reminder with the day's challenge, and an evening check-in if you haven't sealed it yet.</p>
+      <p>A morning reminder with the day's challenge, and an evening check-in if you haven't completed it yet.</p>
       <div id="reminder-box">${reminderHTML()}</div>
       ${installHTML()}
       <div class="actions"><button class="btn primary big" data-act="onboard-done">Show me today's challenge</button></div>
@@ -476,19 +485,19 @@ function reminderHTML() {
   const perm = 'Notification' in window ? Notification.permission : 'unsupported';
   const iosNeedsInstall = isIOS() && !isStandalone();
   let notify;
-  if (iosNeedsInstall) notify = '<p class="hint">On iPhone, notifications work once Keepsake is on your Home Screen: tap Share, then Add to Home Screen. The calendar works right away.</p>';
-  else if (perm === 'unsupported') notify = '<p class="hint">This browser can\'t show notifications. The calendar works everywhere.</p>';
-  else if (perm === 'denied') notify = '<p class="hint">Notifications are blocked for this site. Allow them in your browser settings, or use the calendar.</p>';
+  if (iosNeedsInstall) notify = '<p class="hint">On iPhone, notifications only work once Keepsake is on your Home Screen (tap Share, then Add to Home Screen). The calendar works right away.</p>';
+  else if (perm === 'unsupported') notify = '<p class="hint">This browser can\'t do notifications. The calendar works everywhere.</p>';
+  else if (perm === 'denied') notify = '<p class="hint">Notifications are blocked for this site. Turn them on in your browser settings, or use the calendar.</p>';
   else if (r.notify && perm === 'granted') notify = `<p class="ok">Notifications are on. <button class="link" data-act="notify-test">Send a test</button> · <button class="link" data-act="notify-off">Turn off</button></p>`;
   else notify = `<button class="btn" data-act="notify-on">${icon('bell')} Turn on notifications</button>`;
   return `
     <label class="field inline"><span class="field-label">Morning reminder</span><input type="time" id="reminder-time" value="${r.time}"></label>
-    <label class="check"><input type="checkbox" id="reminder-evening" ${r.evening ? 'checked' : ''}><span>Evening check-in at 8pm<small>Only on days you haven't sealed a card.</small></span></label>
+    <label class="check"><input type="checkbox" id="reminder-evening" ${r.evening ? 'checked' : ''}><span>Evening check-in at 8pm<small>Only if you haven't done the challenge yet.</small></span></label>
     <div class="reminder-ways">
       ${notify}
       <button class="btn" data-act="calendar">${icon('calendar')} Add to my calendar</button>
     </div>
-    <p class="hint">Phones decide when web apps may notify, so notifications can arrive late. The calendar reminder is always on time.</p>`;
+    <p class="hint">Heads up: phones sometimes delay notifications from web apps. Calendar reminders are always on time.</p>`;
 }
 function installHTML() {
   if (isStandalone()) return '';
@@ -499,11 +508,11 @@ function installHTML() {
 function settingsHTML() {
   return `
     <h2 class="proof-title">Settings</h2>
-    <label class="field"><span class="field-label">Your first name <span class="opt">Shown on dares you send</span></span>
+    <label class="field"><span class="field-label">Your first name <span class="opt">So friends know who dared them</span></span>
       <input id="set-name" maxlength="24" value="${esc(state.settings.name)}" autocomplete="given-name"></label>
     <h3 class="sub">Challenges</h3>
     ${prefsHTML()}
-    <p class="hint">Applies from your next new challenge. ${courageText()}.</p>
+    <p class="hint">Kicks in from your next challenge. ${courageText()}.</p>
     <h3 class="sub">Reminders</h3>
     <div id="reminder-box">${reminderHTML()}</div>
     ${installHTML() ? `<h3 class="sub">App</h3>${installHTML()}` : ''}`;
@@ -546,7 +555,7 @@ async function notifyOn() {
     syncReminder();
     toast('Notifications on');
   } else {
-    toast("Notifications weren't allowed");
+    toast("No notifications then. The calendar works too.");
   }
   refreshReminderUI();
 }
@@ -569,12 +578,12 @@ function syncReminder() {
   if (morning > 0 && !d.earned && !tp) reminderTimers.push(setTimeout(() => showNote("Today's challenge", ch.title, 'keepsake-morning'), morning));
   const planned = tp ? until(tp.time) : -1;
   if (planned > 0 && !d.earned) {
-    reminderTimers.push(setTimeout(() => showNote(`It's time: ${ch.title}`, tp.where ? `At ${tp.where}. You planned this.` : 'You planned this for now.', 'keepsake-plan'), planned));
+    reminderTimers.push(setTimeout(() => showNote(`It's time: ${ch.title}`, tp.where ? `At ${tp.where}, like you planned.` : 'This is the time you picked.', 'keepsake-plan'), planned));
   }
   // the evening check-in waits until an hour after a planned time
   const evening = tp ? Math.max(until(EVENING_TIME), planned + 60 * 60 * 1000) : until(EVENING_TIME);
   if (r.evening && evening > 0 && evening < until('23:59')) {
-    reminderTimers.push(setTimeout(() => { if (!today().earned) showNote('Did you do it?', `Seal ${ch.title} in your Book before midnight.`, 'keepsake-evening'); }, evening));
+    reminderTimers.push(setTimeout(() => { if (!today().earned) showNote('Did you do it?', `There's still time to do ${ch.title} today.`, 'keepsake-evening'); }, evening));
   }
 }
 function calendarFile() {
@@ -592,11 +601,11 @@ function calendarFile() {
   const lines = [
     'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Keepsake//Reminders//EN', 'CALSCALE:GREGORIAN',
     ...event('morning', r.time, "Today's Keepsake challenge", "Open Keepsake to see today's challenge:"),
-    ...(r.evening ? event('evening', EVENING_TIME, 'Keepsake: did you do it?', "Seal today's card before midnight:") : []),
+    ...(r.evening ? event('evening', EVENING_TIME, 'Keepsake: did you do it?', "There's still time to do today's challenge:") : []),
     'END:VCALENDAR',
   ];
   download(new Blob([lines.join('\r\n')], { type: 'text/calendar' }), 'keepsake-reminders.ics');
-  toast('Open the file to add the reminders to your calendar');
+  toast('Open the file to add it to your calendar');
 }
 
 /* ================= plans: when and where ================= */
@@ -647,13 +656,13 @@ function planSheetHTML(ch) {
       <input id="plan-where" maxlength="40" placeholder="e.g. Café Lux" value="${esc(existing ? existing.where : '')}" autocomplete="off"></label>
     <p class="plan-preview" id="plan-preview" aria-live="polite"></p>
     <div class="actions">
-      <button class="btn primary big" data-act="plan-commit" data-id="${ch.id}">Commit to it</button>
+      <button class="btn primary big" data-act="plan-commit" data-id="${ch.id}">Lock it in</button>
       <div class="actions-row">
         <button class="btn" data-act="plan-calendar" data-id="${ch.id}">${icon('calendar')} Add to calendar</button>
         <button class="btn" data-act="plan-tell" data-id="${ch.id}">${icon('share')} Tell a friend</button>
       </div>
     </div>
-    <p class="sheet-note">People who decide exactly when and where are much more likely to follow through.</p>`;
+    <p class="sheet-note">Picking a time and place makes you way more likely to actually do it.</p>`;
 }
 function planForm(id) {
   const day = $('input[name="plan-day"]:checked');
@@ -696,7 +705,7 @@ function planCalendarFile(p) {
     'BEGIN:VEVENT', `UID:keepsake-plan-${p.id}-${p.date}@keepsake`, `DTSTAMP:${stamp}`,
     `DTSTART:${p.date.replace(/-/g, '')}T${p.time.replace(':', '')}00`, `DURATION:PT${Math.max(15, Math.min(ch.minutes, 240))}M`,
     `SUMMARY:${icsText(`Keepsake: ${ch.title}`)}`, ...(p.where ? [`LOCATION:${icsText(p.where)}`] : []),
-    `DESCRIPTION:${icsText(`${ch.prompt} When it's done, seal it in Keepsake:`)} ${APP_URL}`, `URL:${APP_URL}`,
+    `DESCRIPTION:${icsText(`${ch.prompt} When you've done it, add it in Keepsake:`)} ${APP_URL}`, `URL:${APP_URL}`,
     'BEGIN:VALARM', 'ACTION:DISPLAY', 'TRIGGER:-PT15M', `DESCRIPTION:${icsText(ch.title)}`, 'END:VALARM',
     'END:VEVENT', 'END:VCALENDAR',
   ];
@@ -747,15 +756,15 @@ function openShareSheet(card) {
     <h2 class="proof-title">Share card #${pad(card.no)}</h2>
     <div class="share-list">
       <button class="btn primary big" data-act="share-story" data-id="${card.id}">${icon('share')} Share to Stories</button>
-      <button class="btn big" data-act="share-dare" data-id="${card.id}">Dare a friend to do it too</button>
-      <button class="btn big ghost" data-act="save-img" data-id="${card.id}">Save the card image</button>
+      <button class="btn big" data-act="share-dare" data-id="${card.id}">Dare a friend</button>
+      <button class="btn big ghost" data-act="save-img" data-id="${card.id}">Save image</button>
     </div>
-    <p class="sheet-note">Stories get a tall image of your card. A dare sends a link that opens this challenge for your friend.</p>`, 'Share', { over: true });
+    <p class="sheet-note">Stories gets a tall version of your card. A dare sends your friend a link to this challenge.</p>`, 'Share', { over: true });
 }
 async function fillTodayCard(el, card) {
   const slot = $('.mini-slot', el);
   if (card.revealed === false) {
-    slot.innerHTML = `<button class="waiting-card" data-act="reveal" data-id="${card.id}">${cardHTML(card, null, 'r0', 'span')}<span>Your card is waiting. Tap to reveal it.</span></button>`;
+    slot.innerHTML = `<button class="waiting-card" data-act="reveal" data-id="${card.id}">${cardHTML(card, null, 'r0', 'span')}<span>Your card's waiting. Tap to flip it.</span></button>`;
     return;
   }
   const url = await photoUrl(card);
@@ -769,7 +778,7 @@ async function fillTodayCard(el, card) {
 function renderDeck() {
   const el = $('#screen-deck');
   const done = earnedIds();
-  const filters = [['all', 'All'], ['todo', 'Not done yet'], ['secret', 'Secret'], ...Object.entries(CATS).map(([k, v]) => [k, v.label])];
+  const filters = [['all', 'All'], ['todo', 'To do'], ['secret', 'Secret'], ...Object.entries(CATS).map(([k, v]) => [k, v.label])];
   const hidden = state.challenges.filter(c => !isUnlocked(c)).length;
   el.innerHTML = `
     <header class="topbar"><h1 class="logo">The Deck</h1><span class="topbar-meta">${done.size} of ${state.challenges.length - hidden} earned${hidden ? ` · ${hidden} secret` : ''}</span></header>
@@ -820,10 +829,10 @@ function deckActions(ch) {
   const dare = `<button class="btn ghost big" data-act="plan" data-id="${ch.id}">${icon('calendar')} ${planFor(ch.id) ? 'Change plan' : 'Plan it'}</button>`
     + `<button class="btn ghost big" data-act="dare-friend" data-id="${ch.id}">${icon('share')} Dare a friend</button>`;
   if (card) return `<div class="actions"><button class="btn big" data-view="${card.id}">See your card</button><button class="btn ghost big" data-act="dare-friend" data-id="${ch.id}">${icon('share')} Dare a friend</button></div>`;
-  if (d.earned) return `<div class="actions">${dare}</div><p class="sheet-note">You've sealed today's card. Come back tomorrow and swap this one in.</p>`;
+  if (d.earned) return `<div class="actions">${dare}</div><p class="sheet-note">You've done today's. Come back tomorrow and swap this one in.</p>`;
   if (currentId(d) === ch.id) return `<div class="actions"><button class="btn primary big" data-act="done" data-id="${ch.id}">I did it</button>${dare}</div><p class="sheet-note">This is today's challenge.</p>`;
-  return `<div class="actions"><button class="btn primary big" data-act="pick" data-id="${ch.id}">Make this today's challenge</button>${dare}</div>
-    <p class="sheet-note">You get one card a day. This replaces today's challenge.</p>`;
+  return `<div class="actions"><button class="btn primary big" data-act="pick" data-id="${ch.id}">Do this one today</button>${dare}</div>
+    <p class="sheet-note">One card a day, so this swaps out today's challenge.</p>`;
 }
 
 async function renderBook() {
@@ -834,7 +843,7 @@ async function renderBook() {
   const header = '<header class="topbar"><h1 class="logo">Your Book</h1></header>';
   if (!cards.length) {
     el.innerHTML = `${header}
-      <p class="empty-book">Every challenge you complete becomes a card here, with your photo and your words.</p>
+      <p class="empty-book">Every challenge you do ends up here as a card, with your photo and your words.</p>
       <div class="grid"><div class="ghost-card">${icon('seal')}<span>Your first card goes here</span></div></div>
       <div class="actions"><button class="btn" data-goto="today">See today's challenge</button></div>`;
     return;
@@ -913,16 +922,16 @@ function openSheet(html, label, { over = false } = {}) {
 const closeDeckSheets = () => document.querySelectorAll('.deck-sheet').forEach(s => s.remove());
 
 /* ================= proof flow ================= */
-async function openProof(challengeId, { kind = 'today', edit = null } = {}) {
+async function openProof(challengeId, { kind = 'today', edit = null, easy = false } = {}) {
   const ch = state.byId.get(challengeId);
-  state.pending = { challengeId, kind, edit, blob: null, keepPhoto: !!(edit && edit.photo), previewUrl: null, ownUrl: false, opener: document.activeElement };
+  state.pending = { challengeId, kind, edit, easy, blob: null, keepPhoto: !!(edit && edit.photo), previewUrl: null, ownUrl: false, opener: document.activeElement };
   if (edit && edit.photo) state.pending.previewUrl = await photoUrl(edit);
   $('#proof-title').textContent = edit ? `Edit card #${pad(edit.no)}` : ch.title;
   $('#story-input').value = edit ? edit.story : '';
   $('#place-input').value = edit ? edit.place : '';
-  $('#easier-input').checked = false;
-  $('#easier-row').hidden = !!edit || ch.courage <= 1;
-  $('#seal-btn').textContent = edit ? 'Save changes' : 'Seal it';
+  $('#upgrade-input').checked = false;
+  $('#upgrade-row').hidden = !!edit || !easy || ch.courage <= 1;
+  $('#seal-btn').textContent = edit ? 'Save changes' : 'Make my card';
   $('#photo-input').value = '';
   updateProof();
   $('#proof').hidden = false;
@@ -972,11 +981,11 @@ async function seal() {
     saveCards();
     closeProof();
     show(activeScreen());
-    toast(photoOk ? 'Card updated' : "Saved, but this browser couldn't store the photo");
+    toast(photoOk ? 'Card updated' : "Saved, but this browser couldn't keep the photo");
     return;
   }
 
-  const easier = $('#easier-input').checked && ch.courage > 1;
+  const easier = p.easy && !$('#upgrade-input').checked && ch.courage > 1;
   const dare = today().dare;
   const capBefore = courageProgress().cap;
   const secretsBefore = unlockedSecretIds();
@@ -1004,7 +1013,7 @@ async function seal() {
   saveDay();
   const kind = p.kind;
   closeProof();
-  if (!photoOk) toast("This browser couldn't store the photo. It will disappear after a reload.");
+  if (!photoOk) toast("This browser couldn't save the photo, so it'll be gone after a reload.");
   const capAfter = courageProgress().cap;
   const unlocked = [...unlockedSecretIds()].filter(id => !secretsBefore.has(id));
   updateDeckBadge();
@@ -1195,7 +1204,7 @@ async function startReveal(card, { from = 'book', levelUp = 0, unlocked = [] } =
   el.setAttribute('aria-label', 'Reveal your card');
   el.style.setProperty('--rc', RARITY[0].color);
   const hint = $('#stage-hint');
-  hint.textContent = 'Tap the card to reveal it';
+  hint.textContent = 'Tap to flip your card';
   hint.classList.add('pulse');
   run = { card, el, url, from, levelUp, unlocked, started: false, startedAt: 0, done: false };
   const myRun = run;
@@ -1287,9 +1296,9 @@ function finishReveal(rn) {
   saveCards();
   const ch = state.byId.get(card.challengeId);
   const news = [];
-  if (rn.levelUp) news.push(`Courage level ${rn.levelUp} unlocked. Bolder challenges ahead.`);
-  if (rn.unlocked.length === 1) news.push(`Secret challenge unlocked: ${state.byId.get(rn.unlocked[0]).title}. Find it in the Deck.`);
-  if (rn.unlocked.length > 1) news.push(`${rn.unlocked.length} secret challenges unlocked. Find them in the Deck.`);
+  if (rn.levelUp) news.push(`Level up! You're at courage level ${rn.levelUp} now.`);
+  if (rn.unlocked.length === 1) news.push(`You unlocked a secret challenge: ${state.byId.get(rn.unlocked[0]).title}. It's in the Deck.`);
+  if (rn.unlocked.length > 1) news.push(`You unlocked ${rn.unlocked.length} secret challenges. They're in the Deck.`);
   announce(`${rc.name} card revealed: ${ch.title}. It's in your Book. ${news.join(' ')}`);
   if (news.length) {
     const hint = $('#stage-hint');
@@ -1321,7 +1330,7 @@ async function openViewer(card) {
   const actions = $('#stage-actions');
   actions.innerHTML = `
     <button class="btn ghost danger" data-act="delete" data-id="${card.id}">Delete</button>
-    <button class="btn" data-act="edit" data-id="${card.id}">Edit words</button>
+    <button class="btn" data-act="edit" data-id="${card.id}">Edit</button>
     <button class="btn" data-act="share" data-id="${card.id}">${icon('share')} Share</button>
     <button class="btn primary" data-act="close-stage">Close</button>`;
   actions.classList.add('show');
@@ -1506,7 +1515,7 @@ async function renderStoryCanvas(card) {
   x.fillText(card.daredBy ? `Dared by ${card.daredBy}. Done.` : 'I did it.', W / 2, y + 130, W - 120);
   x.font = `400 38px ${SANS}`;
   x.fillStyle = '#d2c9bd';
-  x.fillText('Your turn. Find this dare on Keepsake', W / 2, y + 200, W - 120);
+  x.fillText('Your turn. Find it on Keepsake', W / 2, y + 200, W - 120);
   x.font = `400 30px ${SANS}`;
   x.fillStyle = '#a0968a';
   x.fillText(APP_URL.replace(/^https?:\/\//, '').replace(/\/$/, ''), W / 2, y + 255, W - 120);
@@ -1578,10 +1587,20 @@ function onAction(t) {
     case 'done':
       if (d.earned) return;
       closeDeckSheets();
-      openProof(t.dataset.id, { kind: 'today' });
+      openProof(t.dataset.id, { kind: 'today', easy: isEasy(d) && currentId(d) === t.dataset.id });
       break;
     case 'claim-prev':
-      if (d.prev) openProof(d.prev.id, { kind: 'prev' });
+      if (d.prev) openProof(d.prev.id, { kind: 'prev', easy: !!d.prev.easy });
+      break;
+    case 'easy-on':
+      d.easyId = currentId(d);
+      saveDay();
+      renderToday();
+      break;
+    case 'easy-off':
+      d.easyId = null;
+      saveDay();
+      renderToday();
       break;
     case 'dismiss-prev':
       d.prev = null;
@@ -1629,7 +1648,7 @@ function onAction(t) {
       else if (d.earned) {
         state.settings.pendingDare = dr;
         saveSettings();
-        toast("Today's card is sealed. The dare is tomorrow's challenge.");
+        toast("You've already done today's. The dare's up tomorrow.");
       } else {
         d.custom = dr.id;
         d.dare = dr;
@@ -1700,7 +1719,7 @@ function onAction(t) {
       } else {
         show(activeScreen());
       }
-      toast('In your Book');
+      toast('Added to your Book');
       break;
     }
     case 'save-img': {
@@ -1769,7 +1788,7 @@ function bind() {
           <h2>Secret challenge</h2>
           <p class="locked-hint">${esc(info.hint)}</p>
           ${info.need > 1 ? `<div class="level"><span>${CATS[ch.category].label} · ${info.have} of ${info.need}</span><span class="bar" aria-hidden="true"><i style="width:${(info.have / info.need) * 100}%"></i></span></div>` : ''}
-          <p class="sheet-note">Secret challenges are bigger, stranger and more personal than the rest of the deck. Each one opens when you've earned it, or when a friend dares you to do it.</p>
+          <p class="sheet-note">Secret challenges are the big ones: weirder, harder, more personal. They open up as you go, or when a friend dares you.</p>
         </div>`, 'Secret challenge');
     }
     if (t.dataset.view) {
@@ -1875,7 +1894,7 @@ async function boot() {
     const res = await fetch('data/challenges.json');
     state.challenges = await res.json();
   } catch (e) {
-    $('#screen-today').innerHTML = '<p class="empty-list">Keepsake couldn\'t load today\'s challenges. Check your connection and reload the page.</p>';
+    $('#screen-today').innerHTML = '<p class="empty-list">Couldn\'t load the challenges. Check your connection and try again.</p>';
     return;
   }
   state.challenges.forEach(c => state.byId.set(c.id, c));
