@@ -417,3 +417,28 @@ button.kcard { border: 0; padding: 0; background: none; color: inherit; font: in
 details.easier .btn { margin-top: 10px; min-height: 44px; background: transparent; border-color: rgba(42,33,24,.25); color: var(--paper-ink); }
 div.easier { margin-top: 14px; border-top: 1px dashed rgba(42,33,24,.2); padding-top: 10px; }
 div.easier .link { color: var(--paper-accent); }
+
+/* ---------- Day Zero ---------- */
+.kcard.kzero { --rc: #ff7a45; }
+.notice.zero { display: block; padding-right: 16px; }
+.notice.zero p { margin: 0 0 10px; }
+.notice.zero .actions { margin-top: 4px; }
+
+/* ---------- busy, welcome back ---------- */
+.busy { text-align: center; padding: 40px 8px 0; }
+.busy h2 { font: 900 34px/1.1 var(--serif); margin: 0 0 8px; }
+.busy > p { color: var(--ink-2); margin: 0 0 22px; }
+.busy .actions { justify-items: center; }
+.busy .hint { margin-top: 18px; }
+.busy-opts { display: flex; flex-wrap: wrap; gap: 8px; }
+.busy-opts .btn { flex: 1 1 auto; }
+.notice.welcome { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); padding-right: 16px; }
+.notice.welcome strong { display: block; font: 700 20px/1.25 var(--serif); }
+.notice-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.notice-actions .btn { margin-top: 0; }
+
+/* ---------- what might get in the way ---------- */
+.seg.chips > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.seg.chips span { min-height: 40px; padding: 6px 14px; }
+.plan-if { margin: 2px 0 4px !important; font: italic 500 16px/1.35 var(--serif) !important; color: var(--ink-2); }
+.seg legend .opt { display: inline; min-height: 0; padding: 0; border: 0; background: none; border-radius: 0; font-size: 15px; font-weight: 400; color: var(--ink-3); margin-left: 4px; }

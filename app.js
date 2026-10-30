@@ -27,7 +27,25 @@ const PREFS = {
   social: { label: 'Solo or with people?', options: [['solo', 'Mostly solo'], ['any', 'Either'], ['social', 'With people']] },
   budget: { label: 'Budget', options: [['free', 'Free only'], ['some', 'A little'], ['any', "Don't mind"]] },
   time:   { label: 'Time on a normal day', options: [['short', 'Under 30 min'], ['hour', 'About an hour'], ['any', 'Hours, sometimes']] },
+  pace:   { label: 'How often?', options: [['daily', 'Every day'], ['few', 'A few times a week'], ['weekends', 'Weekends']] },
 };
+// Day Zero: the first card, made during setup from something you've always wanted to try.
+// It lives outside the deck, so it never gets picked and never counts toward progress.
+const DAY_ZERO = { id: 'day-zero', title: 'Day Zero', category: 'zero', courage: 1, minutes: 1, cost: 'free', solo: true, prompt: '', why: '', easier: '' };
+const ZERO_LOOK = { name: 'Day Zero', color: '#ff7a45', light: '#ffd2bf', dark: '#7a2c10' };
+const isZero = c => c.challengeId === DAY_ZERO.id;
+const realCards = () => state.cards.filter(c => !isZero(c));
+// what might get in the way: tap an option, get a suggested plan you can edit
+const OBSTACLES = [
+  ['tired', 'Too tired', "I'm too tired", 'do the easy version'],
+  ['time', 'No time', 'I run out of time', 'move it to tomorrow'],
+  ['weather', 'Weather', "the weather's bad", 'go anyway with a jacket'],
+  ['nerves', 'I chicken out', 'I chicken out', 'do just the first step, then decide'],
+  ['forget', 'I forget', 'I forget', 'put it in my calendar'],
+  ['other', 'Something else', '', ''],
+];
+// pace: which days reminders may come on (0 = Sunday)
+const PACE_DAYS = { daily: [0, 1, 2, 3, 4, 5, 6], few: [1, 3, 6], weekends: [0, 6] };
 // courage grows by doing: three cards at your current level unlock the next one
 const START_COURAGE = 2;
 const CARDS_PER_LEVEL = 3;
@@ -149,8 +167,9 @@ const state = {
   day: store.get('ks.day', null),
   settings: Object.assign({
     sound: true, name: '', onboarded: false, pendingDare: null, seenSecrets: [], plans: [],
-    prefs: { social: 'any', budget: 'any', time: 'any' },
-    reminder: { time: '09:00', evening: true, notify: false },
+    prefs: { social: 'any', budget: 'any', time: 'any', pace: 'daily' },
+    reminder: { time: '09:00', evening: false, notify: false },
+    busyUntil: null, lastOpen: null, dayZeroDone: false,
   }, store.get('ks.settings', {})),
   onboardStep: 0,
   incomingDare: null,   // { id, from } from a dare link
@@ -159,11 +178,23 @@ const state = {
   deckQuery: '',
   pending: null,   // proof sheet in progress
   justLanded: null,
+  welcomeBack: null, // 'gap' or 'busy' when coming back after a while
 };
 const saveCards = () => store.set('ks.cards', state.cards);
 const saveDay = () => store.set('ks.day', state.day);
 const saveSettings = () => store.set('ks.settings', state.settings);
 const earnedIds = () => new Set(state.cards.map(c => c.challengeId));
+const daysBetween = (a, b) => Math.round((new Date(b + 'T12:00') - new Date(a + 'T12:00')) / 864e5);
+const isBusy = () => { const b = state.settings.busyUntil; return b === 'open' || (!!b && b >= dayKey()); };
+const paceDay = (date = new Date()) => (PACE_DAYS[state.settings.prefs.pace] || PACE_DAYS.daily).includes(date.getDay());
+function pickTiny() {
+  const d = today();
+  const done = earnedIds();
+  let pool = state.challenges.filter(c => c.tiny && !done.has(c.id) && !d.shown.includes(c.id));
+  if (!pool.length) pool = state.challenges.filter(c => c.tiny);
+  pool.sort((a, b) => hash(d.date + a.id) - hash(d.date + b.id));
+  return pool[0].id;
+}
 
 /* ================= secret challenges ================= */
 // Secret challenges stay hidden in the Deck until their unlock condition is met.
@@ -180,10 +211,10 @@ function unlockInfo(ch) {
     const n = state.cards.filter(c => (state.byId.get(c.challengeId) || {}).category === u.category).length;
     return result(n, u.count, `Do ${u.count} ${CATS[u.category].label} challenges`);
   }
-  if (u.cards) return result(state.cards.length, u.cards, `Collect ${u.cards} cards`);
+  if (u.cards) return result(realCards().length, u.cards, `Collect ${u.cards} cards`);
   if (u.level) return result(courageProgress().cap, u.level, `Reach courage level ${u.level}`);
-  if (u.days) return result(new Set(state.cards.map(c => dayKey(new Date(c.date)))).size, u.days, `Do challenges on ${u.days} different days`);
-  if (u.rarity) return result(state.cards.some(c => c.rarity >= u.rarity && c.revealed !== false) ? 1 : 0, 1, `Get a ${RARITY[u.rarity].name} card`);
+  if (u.days) return result(new Set(realCards().map(c => dayKey(new Date(c.date)))).size, u.days, `Do challenges on ${u.days} different days`);
+  if (u.rarity) return result(realCards().some(c => c.rarity >= u.rarity && c.revealed !== false) ? 1 : 0, 1, `Get a ${RARITY[u.rarity].name} card`);
   if (u.dare) return result(state.cards.some(c => c.daredBy) ? 1 : 0, 1, 'Do a dare from a friend');
   return { unlocked: true };
 }
@@ -208,6 +239,9 @@ function today() {
     // a challenge finished after midnight can still be sealed the next day
     const prev = old && old.date === dayKey(addDays(new Date(), -1)) && !old.earned ? { id: currentId(old), easy: isEasy(old) } : null;
     state.day = { date: key, shown: [], idx: 0, custom: null, earned: null, prev };
+    // a break that ran out ends quietly, with an easy start
+    const b = state.settings.busyUntil;
+    if (b && b !== 'open' && b < key) { state.settings.busyUntil = null; saveSettings(); state.welcomeBack = 'busy'; }
     // a dare accepted after today's card was sealed becomes the next day's challenge
     const pd = state.settings.pendingDare;
     if (pd) {
@@ -324,13 +358,16 @@ function cardHTML(card, url, cls = '', tag = 'div') {
   const story = card.story
     ? `<span class="kf-story">“${esc(card.story)}”</span>`
     : card.preview ? '<span class="kf-story placeholder">Your words go here</span>' : '';
+  const zero = isZero(card);
+  const topLabel = zero ? 'DAY ZERO' : `${ch.secret ? 'SECRET · ' : ''}${CATS[ch.category].label.toUpperCase()}`;
+  const footLeft = zero ? 'Where it starts' : r ? `${'★'.repeat(r)}<span class="rn"> ${RARITY[r].name}</span>` : '';
   return `
-  <${tag} class="kcard r${r} ${cls}" data-card="${card.id || ''}">
+  <${tag} class="kcard r${r}${zero && r ? ' kzero' : ''} ${cls}" data-card="${card.id || ''}">
     <span class="kcard-inner">
       <span class="kcard-face kcard-back"><span class="sigil">${icon('seal')}<small>KEEPSAKE</small></span></span>
       <span class="kcard-face kcard-front">
         <span class="kf">
-          <span class="kf-top"><span>${ch.secret ? 'SECRET · ' : ''}${CATS[ch.category].label.toUpperCase()}</span><span class="kf-no">${card.no ? '#' + pad(card.no) : ''}</span></span>
+          <span class="kf-top"><span>${topLabel}</span><span class="kf-no">${card.no || zero ? '#' + pad(card.no) : ''}</span></span>
           ${photo}
           <span class="seal">${icon('seal')}</span>
           <span class="kf-body">
@@ -339,7 +376,7 @@ function cardHTML(card, url, cls = '', tag = 'div') {
             ${card.planned ? '<span class="kf-planned">Planned and done</span>' : ''}
           </span>
           <span class="kf-foot">
-            <span class="kf-rarity">${r ? `${'★'.repeat(r)}<span class="rn"> ${RARITY[r].name}</span>` : ''}</span>
+            <span class="kf-rarity">${footLeft}</span>
             <span class="kf-date">${fmtDate(card.date)}${card.place ? ' · ' + esc(card.place) : ''}</span>
           </span>
         </span>
@@ -350,7 +387,7 @@ function cardHTML(card, url, cls = '', tag = 'div') {
 }
 function cardLabel(card) {
   const ch = state.byId.get(card.challengeId);
-  return `Card ${card.no}: ${ch ? ch.title : ''}, ${RARITY[card.rarity].name}, ${fmtDate(card.date)}`;
+  return isZero(card) ? `Day Zero: ${card.story}` : `Card ${card.no}: ${ch ? ch.title : ''}, ${RARITY[card.rarity].name}, ${fmtDate(card.date)}`;
 }
 
 function attachTilt(el) {
@@ -410,6 +447,33 @@ function renderToday() {
       <button class="icon-btn" data-act="dismiss-prev" aria-label="Dismiss">${icon('close')}</button>
     </aside>` : '';
 
+  const welcome = state.welcomeBack && !isBusy() ? `
+    <aside class="notice welcome">
+      <div><strong>Good to see you.</strong>
+        ${state.welcomeBack === 'busy' ? '<span class="notice-sub">Back to it? Here\'s an easy one to start.</span>' : ''}
+        <span class="notice-actions">
+          <button class="btn primary" data-act="start-small">Start small</button>
+          <button class="btn" data-act="dismiss-welcome">Show me today's</button>
+        </span>
+      </div>
+    </aside>` : '';
+  const zeroNote = !state.settings.dayZeroDone && !isBusy() ? dayZeroHTML(true) : '';
+
+  if (isBusy() && !d.earned && !d.busyPeek) {
+    el.innerHTML = `${header}
+      <section class="busy">
+        <h2>Taking a breather.</h2>
+        <p>Your Book's right here when you're ready.</p>
+        <div class="actions">
+          <button class="btn" data-act="busy-peek">Got two minutes?</button>
+          <button class="link" data-act="busy-end">I'm back</button>
+        </div>
+        <p class="hint">No reminders ${busyUntilText()}.</p>
+      </section>`;
+    syncReminder();
+    return;
+  }
+
   const earned = d.earned && state.cards.find(c => c.id === d.earned);
   if (earned) {
     el.innerHTML = `${header}${dareNote}${prevNote}
@@ -424,7 +488,7 @@ function renderToday() {
   } else {
     const ch = currentChallenge();
     const daredBy = d.dare && d.dare.id === ch.id ? `<p class="dared-by">Dared by ${esc(d.dare.from || 'a friend')}</p>` : '';
-    el.innerHTML = `${header}${dareNote}${prevNote}${courageHTML()}${daredBy}${planBlockHTML(ch)}${questHTML(ch, { today: true, easy: isEasy(d) })}${todayActions(ch)}${upcomingHTML()}`;
+    el.innerHTML = `${header}${welcome}${zeroNote}${dareNote}${prevNote}${courageHTML()}${daredBy}${planBlockHTML(ch)}${questHTML(ch, { today: true, easy: isEasy(d) })}${todayActions(ch)}${upcomingHTML()}`;
   }
   syncReminder();
 }
@@ -453,12 +517,13 @@ function onboardingHTML() {
         <li>Come back and add a photo or a line.</li>
         <li>It turns into a card in your Book.</li>
       </ul>
-      <p>Three quick questions so the first ones actually fit your life. You'll start easy and work up to the scary stuff.</p>
+      <p>Four quick questions so the first ones actually fit your life. You'll start easy and work up to the scary stuff.</p>
       <div class="actions">
         <button class="btn primary big" data-act="onboard-next">Let's go</button>
         <button class="btn ghost" data-act="onboard-done">Skip</button>
       </div>
     </section>`;
+  if (step === 3) return dayZeroHTML();
   if (step === 1) return `
     <section class="onboard">
       <h2>What fits your days?</h2>
@@ -468,11 +533,38 @@ function onboardingHTML() {
   return `
     <section class="onboard">
       <h2>Want a nudge?</h2>
-      <p>A morning reminder with the day's challenge, and an evening check-in if you haven't completed it yet.</p>
+      <p>A morning reminder with the day's challenge, and an evening check-in if you haven't completed it yet. Never more than that, and it backs off when you're busy.</p>
       <div id="reminder-box">${reminderHTML()}</div>
       ${installHTML()}
-      <div class="actions"><button class="btn primary big" data-act="onboard-done">Show me today's challenge</button></div>
+      <div class="actions"><button class="btn primary big" data-act="onboard-next">Next</button></div>
     </section>`;
+}
+// Day Zero: a tiny real commitment instead of a promise to an app
+function dayZeroHTML(inline = false) {
+  return `
+    <${inline ? 'aside class="notice zero"' : 'section class="onboard"'}>
+      ${inline ? '' : '<h2>Day Zero</h2>'}
+      <div>
+        <p>${inline ? '<strong>One quick thing.</strong> ' : ''}This only works if you actually go out and do things. Here's the first one.</p>
+        <label class="field"><span class="field-label">What's one thing you've always wanted to try?</span>
+          <input id="zero-input" maxlength="80" placeholder="e.g. Sing in front of people" autocomplete="off"></label>
+        <div class="actions">
+          <button class="btn primary big" id="zero-btn" data-act="zero-make" disabled>Make it my first card</button>
+          <button class="btn ghost" data-act="${inline ? 'zero-skip' : 'onboard-done'}">Skip</button>
+        </div>
+      </div>
+    </${inline ? 'aside' : 'section'}>`;
+}
+function makeDayZero() {
+  const text = ($('#zero-input').value || '').trim().slice(0, 80);
+  if (!text) return;
+  const card = { id: uid(), no: 0, challengeId: DAY_ZERO.id, rarity: 1, easier: false, story: text, place: '', date: new Date().toISOString(), photo: false, revealed: false };
+  state.cards = state.cards.filter(c => !isZero(c));
+  state.cards.push(card);
+  saveCards();
+  state.settings.dayZeroDone = true;
+  saveSettings();
+  startReveal(card, { from: 'zero' });
 }
 function prefsHTML() {
   return Object.entries(PREFS).map(([k, p]) => `
@@ -497,7 +589,7 @@ function reminderHTML() {
       ${notify}
       <button class="btn" data-act="calendar">${icon('calendar')} Add to my calendar</button>
     </div>
-    <p class="hint">Heads up: phones sometimes delay notifications from web apps. Calendar reminders are always on time.</p>`;
+    <p class="hint">Heads up: phones sometimes delay notifications from web apps. Calendar reminders are always on time, but they can't back off when you're busy.</p>`;
 }
 function installHTML() {
   if (isStandalone()) return '';
@@ -513,9 +605,25 @@ function settingsHTML() {
     <h3 class="sub">Challenges</h3>
     ${prefsHTML()}
     <p class="hint">Kicks in from your next challenge. ${courageText()}.</p>
+    <h3 class="sub">Busy?</h3>
+    ${busySettingsHTML()}
     <h3 class="sub">Reminders</h3>
     <div id="reminder-box">${reminderHTML()}</div>
     ${installHTML() ? `<h3 class="sub">App</h3>${installHTML()}` : ''}`;
+}
+function busyUntilText() {
+  const b = state.settings.busyUntil;
+  return b === 'open' ? 'until you say you\'re back' : `until ${new Date(b + 'T12:00').toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}`;
+}
+function busySettingsHTML() {
+  if (isBusy()) return `<p class="ok">You're taking a break ${busyUntilText()}. <button class="link" data-act="busy-end">I'm back</button></p>`;
+  return `
+    <div class="busy-opts">
+      <button class="btn" data-act="busy-set" data-len="7">1 week</button>
+      <button class="btn" data-act="busy-set" data-len="14">2 weeks</button>
+      <button class="btn" data-act="busy-set" data-len="open">Until I'm back</button>
+    </div>
+    <p class="hint">Pauses all reminders. Nothing piles up while you're away.</p>`;
 }
 function refreshReminderUI() {
   const box = $('#reminder-box');
@@ -567,23 +675,26 @@ function syncReminder() {
   const ch = state.byId.get(currentId(d));
   const r = state.settings.reminder;
   const tp = plans().find(p => p.date === d.date && p.id === currentId(d));
-  const meta = { notify: r.notify, time: r.time, evening: r.evening, date: d.date, title: ch ? ch.title : '', earned: !!d.earned,
-    plan: tp ? { time: tp.time, where: tp.where } : null };
+  const planBody = tp ? [tp.where ? `At ${tp.where}.` : '', ifLine(tp)].filter(Boolean).join(' ') || 'This is the time you picked.' : '';
+  const meta = { notify: r.notify, time: r.time, evening: r.evening, date: d.date, title: ch ? ch.title : '', why: ch ? ch.why : '', earned: !!d.earned,
+    plan: tp ? { time: tp.time, body: planBody } : null,
+    pace: state.settings.prefs.pace || 'daily', busyUntil: state.settings.busyUntil, lastOpen: dayKey() };
   idbDo('readwrite', s => s.put(meta, 'reminder'), 'meta').catch(() => {});
   reminderTimers.forEach(clearTimeout);
   reminderTimers = [];
-  if (!r.notify || !('Notification' in window) || Notification.permission !== 'granted' || !ch) return;
+  if (!r.notify || !('Notification' in window) || Notification.permission !== 'granted' || !ch || isBusy()) return;
   const until = hhmm => { const [h, m] = hhmm.split(':').map(Number); const t = new Date(); t.setHours(h, m, 0, 0); return t - Date.now(); };
   const morning = until(r.time);
-  if (morning > 0 && !d.earned && !tp) reminderTimers.push(setTimeout(() => showNote("Today's challenge", ch.title, 'keepsake-morning'), morning));
+  if (morning > 0 && !d.earned && !tp && paceDay()) reminderTimers.push(setTimeout(() => showNote("Today's challenge", ch.title, 'keepsake-morning'), morning));
   const planned = tp ? until(tp.time) : -1;
   if (planned > 0 && !d.earned) {
-    reminderTimers.push(setTimeout(() => showNote(`It's time: ${ch.title}`, tp.where ? `At ${tp.where}, like you planned.` : 'This is the time you picked.', 'keepsake-plan'), planned));
+    reminderTimers.push(setTimeout(() => showNote(`It's time: ${ch.title}`, planBody, 'keepsake-plan'), planned));
   }
   // the evening check-in waits until an hour after a planned time
   const evening = tp ? Math.max(until(EVENING_TIME), planned + 60 * 60 * 1000) : until(EVENING_TIME);
-  if (r.evening && evening > 0 && evening < until('23:59')) {
-    reminderTimers.push(setTimeout(() => { if (!today().earned) showNote('Did you do it?', `There's still time to do ${ch.title} today.`, 'keepsake-evening'); }, evening));
+  // the evening check-in is opt-in, except on days you planned something
+  if ((r.evening || tp) && evening > 0 && evening <= until('21:30')) {
+    reminderTimers.push(setTimeout(() => { if (!today().earned) showNote(`Still up for ${ch.title}?`, "Tomorrow's fine too.", 'keepsake-evening'); }, evening));
   }
 }
 function calendarFile() {
@@ -629,6 +740,15 @@ function dayPhrase(date, time) {
   return `On ${new Date(date + 'T12:00').toLocaleDateString(undefined, { weekday: 'long' })}`;
 }
 const planSentence = p => `${dayPhrase(p.date, p.time)} at ${fmtTime(p.time)}${p.where ? `, at ${p.where}` : ''}.`;
+// "If I'm too tired, I'll do the easy version." from the obstacle the user picked or wrote
+function ifLine(p) {
+  if (!p || !p.obstacle || !p.ifThen) return '';
+  const o = OBSTACLES.find(x => x[0] === p.obstacle);
+  const clause = p.obstacle === 'other' ? (p.obstacleText || '').replace(/[.!]+$/, '') : o && o[2];
+  if (!clause) return '';
+  const lower = /^I\b/.test(clause) ? clause : clause.charAt(0).toLowerCase() + clause.slice(1);
+  return `If ${lower}, I'll ${p.ifThen.replace(/^i'll\s+/i, '').replace(/[.!]+$/, '')}.`;
+}
 
 function planSheetHTML(ch) {
   const d = today();
@@ -654,6 +774,13 @@ function planSheetHTML(ch) {
     <label class="field inline"><span class="field-label">Or pick a time</span><input type="time" id="plan-time" value="${defaultTime}"></label>
     <label class="field"><span class="field-label">Where? <span class="opt">Optional</span></span>
       <input id="plan-where" maxlength="40" placeholder="e.g. Café Lux" value="${esc(existing ? existing.where : '')}" autocomplete="off"></label>
+    <fieldset class="seg chips"><legend>What might get in the way? <span class="opt">Optional</span></legend>
+      <div>${OBSTACLES.map(([v, l]) => `<label><input type="radio" name="plan-obstacle" value="${v}" ${existing && existing.obstacle === v ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>
+    </fieldset>
+    <label class="field" id="obstacle-other-row" ${existing && existing.obstacle === 'other' ? '' : 'hidden'}><span class="field-label">What might get in the way?</span>
+      <input id="plan-obstacle-text" maxlength="60" placeholder="e.g. My friend cancels" value="${esc(existing ? existing.obstacleText || '' : '')}" autocomplete="off"></label>
+    <label class="field" id="ifthen-row" ${existing && existing.obstacle ? '' : 'hidden'}><span class="field-label">If it happens, I'll…</span>
+      <input id="plan-ifthen" maxlength="80" value="${esc(existing ? existing.ifThen || '' : '')}" ${existing && existing.ifThen ? 'data-edited="1"' : ''} autocomplete="off"></label>
     <p class="plan-preview" id="plan-preview" aria-live="polite"></p>
     <div class="actions">
       <button class="btn primary big" data-act="plan-commit" data-id="${ch.id}">Lock it in</button>
@@ -666,11 +793,29 @@ function planSheetHTML(ch) {
 }
 function planForm(id) {
   const day = $('input[name="plan-day"]:checked');
-  return { id, date: day ? day.value : dayKey(), time: $('#plan-time').value || '18:00', where: $('#plan-where').value.trim().slice(0, 40) };
+  const ob = $('input[name="plan-obstacle"]:checked');
+  return {
+    id, date: day ? day.value : dayKey(), time: $('#plan-time').value || '18:00', where: $('#plan-where').value.trim().slice(0, 40),
+    obstacle: ob ? ob.value : null,
+    obstacleText: ob && ob.value === 'other' ? $('#plan-obstacle-text').value.trim().slice(0, 60) : '',
+    ifThen: ob ? $('#plan-ifthen').value.trim().slice(0, 80) : '',
+  };
 }
 function updatePlanPreview() {
   const el = $('#plan-preview');
-  if (el) el.textContent = planSentence(planForm(''));
+  if (!el) return;
+  const p = planForm('');
+  el.textContent = `${planSentence(p)} ${ifLine(p)}`.trim();
+}
+// picking an obstacle suggests a plan for it, unless the user already wrote their own
+function pickObstacle(value) {
+  const o = OBSTACLES.find(x => x[0] === value);
+  $('#obstacle-other-row').hidden = value !== 'other';
+  $('#ifthen-row').hidden = false;
+  const input = $('#plan-ifthen');
+  if (!input.dataset.edited) input.value = o ? o[3] : '';
+  if (value === 'other') $('#plan-obstacle-text').focus();
+  updatePlanPreview();
 }
 function openPlanSheet(ch) {
   openSheet(planSheetHTML(ch), 'When and where?');
@@ -727,7 +872,10 @@ function planBlockHTML(ch) {
     <aside class="plan-block">
       <span class="plan-label">${icon('calendar')} Your plan</span>
       <p>${esc(planSentence(p))}</p>
-      <span class="plan-links"><button class="link" data-act="plan" data-id="${ch.id}">Change</button> · <button class="link" data-act="plan-cancel" data-id="${ch.id}">Cancel plan</button></span>
+      ${ifLine(p) ? `<p class="plan-if">${esc(ifLine(p))}</p>` : ''}
+      <span class="plan-links"><button class="link" data-act="plan" data-id="${ch.id}">Change</button> · <button class="link" data-act="plan-cancel" data-id="${ch.id}">Cancel plan</button>${
+        p.obstacle === 'tired' && !isEasy(today()) ? ' · <button class="link" data-act="easy-on">Go easy today</button>' : ''}${
+        p.obstacle === 'forget' ? ` · <button class="link" data-act="plan-calendar-saved" data-id="${ch.id}">Add to calendar</button>` : ''}</span>
     </aside>`;
 }
 function upcomingHTML() {
@@ -756,7 +904,7 @@ function openShareSheet(card) {
     <h2 class="proof-title">Share card #${pad(card.no)}</h2>
     <div class="share-list">
       <button class="btn primary big" data-act="share-story" data-id="${card.id}">${icon('share')} Share to Stories</button>
-      <button class="btn big" data-act="share-dare" data-id="${card.id}">Dare a friend</button>
+      ${isZero(card) ? '' : `<button class="btn big" data-act="share-dare" data-id="${card.id}">Dare a friend</button>`}
       <button class="btn big ghost" data-act="save-img" data-id="${card.id}">Save image</button>
     </div>
     <p class="sheet-note">Stories gets a tall version of your card. A dare sends your friend a link to this challenge.</p>`, 'Share', { over: true });
@@ -839,7 +987,7 @@ async function renderBook() {
   const el = $('#screen-book');
   const cards = [...state.cards].sort((a, b) => b.no - a.no);
   const counts = [0, 0, 0, 0, 0, 0];
-  cards.forEach(c => { if (c.revealed !== false) counts[c.rarity]++; });
+  cards.forEach(c => { if (c.revealed !== false && !isZero(c)) counts[c.rarity]++; });
   const header = '<header class="topbar"><h1 class="logo">Your Book</h1></header>';
   if (!cards.length) {
     el.innerHTML = `${header}
@@ -848,7 +996,8 @@ async function renderBook() {
       <div class="actions"><button class="btn" data-goto="today">See today's challenge</button></div>`;
     return;
   }
-  const parts = [`${cards.length} card${cards.length === 1 ? '' : 's'}`];
+  const n = realCards().length;
+  const parts = [`${n} card${n === 1 ? '' : 's'}`];
   for (let r = 5; r >= 1; r--) if (counts[r]) parts.push(`<b style="--rc:${RARITY[r].color}">${counts[r]} ${RARITY[r].name}</b>`);
   parts.push(`courage level ${courageProgress().cap}`);
   const done = earnedIds();
@@ -1265,7 +1414,7 @@ function finishReveal(rn) {
   rn.started = true;
   const { card, el } = rn;
   const r = card.rarity;
-  const rc = RARITY[r];
+  const rc = isZero(card) ? ZERO_LOOK : RARITY[r];
   const rm = reduceMotion();
   el.classList.remove('waiting', 'charging', 'dev-photo', 'dev-ink', 'dev-seal');
   el.style.removeProperty('--rc');
@@ -1299,7 +1448,8 @@ function finishReveal(rn) {
   if (rn.levelUp) news.push(`Level up! You're at courage level ${rn.levelUp} now.`);
   if (rn.unlocked.length === 1) news.push(`You unlocked a secret challenge: ${state.byId.get(rn.unlocked[0]).title}. It's in the Deck.`);
   if (rn.unlocked.length > 1) news.push(`You unlocked ${rn.unlocked.length} secret challenges. They're in the Deck.`);
-  announce(`${rc.name} card revealed: ${ch.title}. It's in your Book. ${news.join(' ')}`);
+  if (isZero(card)) news.push('Your first card. Now go get the next one.');
+  announce(isZero(card) ? `Your first card is in your Book: ${card.story}.` : `${rc.name} card revealed: ${ch.title}. It's in your Book. ${news.join(' ')}`);
   if (news.length) {
     const hint = $('#stage-hint');
     hint.textContent = news.join('\n');
@@ -1393,7 +1543,7 @@ async function renderCardCanvas(card) {
   c.width = W; c.height = H;
   const x = c.getContext('2d');
   const ch = state.byId.get(card.challengeId);
-  const r = RARITY[card.rarity];
+  const r = isZero(card) ? ZERO_LOOK : RARITY[card.rarity];
 
   const g = x.createLinearGradient(0, 0, W, H);
   g.addColorStop(0, r.light); g.addColorStop(0.4, r.color); g.addColorStop(1, r.dark);
@@ -1404,7 +1554,7 @@ async function renderCardCanvas(card) {
   x.font = `700 30px ${SANS}`;
   x.fillStyle = '#d2c9bd';
   x.textAlign = 'left';
-  x.fillText(`${ch.secret ? 'SECRET · ' : ''}${CATS[ch.category].label.toUpperCase()}`, 64, 92);
+  x.fillText(isZero(card) ? 'DAY ZERO' : `${ch.secret ? 'SECRET · ' : ''}${CATS[ch.category].label.toUpperCase()}`, 64, 92);
   x.textAlign = 'right';
   x.fillStyle = r.color;
   x.font = '700 34px Fraunces, Georgia, serif';
@@ -1457,7 +1607,7 @@ async function renderCardCanvas(card) {
   x.fillRect(64, H - 128, W - 128, 2);
   x.font = `700 30px ${SANS}`;
   x.fillStyle = r.color;
-  x.fillText(`${'★'.repeat(card.rarity)}  ${r.name.toUpperCase()}`, 64, H - 72);
+  x.fillText(isZero(card) ? 'WHERE IT STARTS' : `${'★'.repeat(card.rarity)}  ${r.name.toUpperCase()}`, 64, H - 72);
   x.textAlign = 'right';
   x.font = '500 30px Fraunces, Georgia, serif';
   x.fillStyle = '#a0968a';
@@ -1470,7 +1620,7 @@ async function renderStoryCanvas(card) {
   const c = document.createElement('canvas');
   c.width = W; c.height = H;
   const x = c.getContext('2d');
-  const r = RARITY[card.rarity];
+  const r = isZero(card) ? ZERO_LOOK : RARITY[card.rarity];
   const cardCanvas = await renderCardCanvas(card);
   const url = await photoUrl(card);
   x.fillStyle = '#110f0d';
@@ -1592,6 +1742,47 @@ function onAction(t) {
     case 'claim-prev':
       if (d.prev) openProof(d.prev.id, { kind: 'prev', easy: !!d.prev.easy });
       break;
+    case 'zero-make':
+      makeDayZero();
+      break;
+    case 'zero-skip':
+      state.settings.dayZeroDone = true;
+      saveSettings();
+      renderToday();
+      break;
+    case 'busy-set': {
+      const len = t.dataset.len;
+      state.settings.busyUntil = len === 'open' ? 'open' : dayKey(addDays(new Date(), Number(len) - 1));
+      saveSettings();
+      closeDeckSheets();
+      show('today');
+      toast('Got it. No reminders while you\'re busy.');
+      break;
+    }
+    case 'busy-end':
+      state.settings.busyUntil = null;
+      saveSettings();
+      state.welcomeBack = 'busy';
+      closeDeckSheets();
+      show('today');
+      break;
+    case 'busy-peek':
+    case 'start-small':
+      d.custom = pickTiny();
+      d.busyPeek = true;
+      saveDay();
+      state.welcomeBack = null;
+      renderToday();
+      break;
+    case 'dismiss-welcome':
+      state.welcomeBack = null;
+      renderToday();
+      break;
+    case 'plan-calendar-saved': {
+      const p = planFor(t.dataset.id);
+      if (p) planCalendarFile(p);
+      break;
+    }
     case 'easy-on':
       d.easyId = currentId(d);
       saveDay();
@@ -1711,6 +1902,11 @@ function onAction(t) {
       const from = run && run.from;
       const c = run && run.card;
       stage.close();
+      if (from === 'zero') {
+        if (!state.settings.onboarded) finishOnboarding(); else show('today');
+        toast('Your first card is in your Book');
+        break;
+      }
       if (c && (from === 'today' || from === 'prev')) {
         state.justLanded = c.id;
         show('today');
@@ -1803,12 +1999,15 @@ function bind() {
   document.addEventListener('input', e => {
     if (e.target.id === 'deck-search') { state.deckQuery = e.target.value; renderDeckList(); }
     if (e.target.id === 'set-name') { state.settings.name = e.target.value.trim().slice(0, 24); saveSettings(); }
-    if (e.target.id === 'plan-where') updatePlanPreview();
+    if (e.target.id === 'plan-where' || e.target.id === 'plan-obstacle-text') updatePlanPreview();
+    if (e.target.id === 'plan-ifthen') { e.target.dataset.edited = '1'; updatePlanPreview(); }
+    if (e.target.id === 'zero-input') $('#zero-btn').disabled = !e.target.value.trim();
   });
   document.addEventListener('change', e => {
     const t = e.target;
     const r = state.settings.reminder;
-    if (t.name === 'plan-quick') { $('#plan-time').value = t.value; updatePlanPreview(); }
+    if (t.name === 'plan-obstacle') pickObstacle(t.value);
+    else if (t.name === 'plan-quick') { $('#plan-time').value = t.value; updatePlanPreview(); }
     else if (t.id === 'plan-time') {
       document.querySelectorAll('input[name="plan-quick"]').forEach(q => { q.checked = q.value === t.value; });
       updatePlanPreview();
@@ -1898,13 +2097,30 @@ async function boot() {
     return;
   }
   state.challenges.forEach(c => state.byId.set(c.id, c));
+  state.byId.set(DAY_ZERO.id, DAY_ZERO);
 
   // dare links look like ?dare=<challenge id>&from=<first name>
   const qs = new URLSearchParams(location.search);
   const dareId = qs.get('dare');
-  if (dareId && state.byId.has(dareId)) state.incomingDare = { id: dareId, from: (qs.get('from') || '').trim().slice(0, 24) };
+  if (dareId && state.challenges.some(c => c.id === dareId)) state.incomingDare = { id: dareId, from: (qs.get('from') || '').trim().slice(0, 24) };
   if (location.search) history.replaceState(null, '', location.pathname);
   if (!state.settings.onboarded && state.cards.length) { state.settings.onboarded = true; saveSettings(); }
+
+  // coming back after a while gets a warm welcome, never a count of the days
+  const last = state.settings.lastOpen;
+  if (last && daysBetween(last, dayKey()) >= 5 && !state.welcomeBack) state.welcomeBack = 'gap';
+  state.settings.lastOpen = dayKey();
+  saveSettings();
+  // answers given on notification buttons while the app was closed
+  try {
+    const inbox = await idbDo('readonly', st => st.get('inbox'), 'meta');
+    if (inbox && inbox.busyUntil && !isBusy()) {
+      state.settings.busyUntil = inbox.busyUntil;
+      saveSettings();
+      state.welcomeBack = null;
+    }
+    if (inbox) await idbDo('readwrite', st => st.delete('inbox'), 'meta');
+  } catch (e) { /* no IndexedDB */ }
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
   window.addEventListener('beforeinstallprompt', e => {

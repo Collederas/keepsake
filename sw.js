@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'keepsake-v7';
+const CACHE = 'keepsake-v8';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'data/challenges.json', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -56,6 +56,14 @@ const dayKey = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '
 const toMinutes = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
 const NOTE = { icon: 'icons/icon-192.png', badge: 'icons/icon-192.png' };
 
+// The reminder policy: invitations, never guilt. At most one a day (plus the check-in on a
+// day you planned something), only on your pace days, nothing while you're busy, and it backs
+// off when you go quiet: every other day after 3 days, one "Busy?" question around day 5,
+// then only fresh starts on Mondays and the 1st, and after two of those a last message and silence.
+const PACE_DAYS = { daily: [0, 1, 2, 3, 4, 5, 6], few: [1, 3, 6], weekends: [0, 6] };
+const daysBetween = (a, b) => Math.round((new Date(b + 'T12:00') - new Date(a + 'T12:00')) / 864e5);
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+
 async function maybeRemind() {
   const m = await meta('readonly', s => s.get('reminder'));
   if (!m || !m.notify || Notification.permission !== 'granted') return;
@@ -63,39 +71,95 @@ async function maybeRemind() {
   const now = new Date();
   const key = dayKey(now);
   const mins = now.getHours() * 60 + now.getMinutes();
+  const daytime = mins >= 8 * 60 && mins <= 21 * 60 + 30;
   const fresh = m.date === key;
-  if (fresh && m.earned) return;
-  let did = false;
-  if (fresh && m.plan) {
-    // a plan replaces the generic morning nudge with one at the planned time
-    if (mins >= toMinutes(m.plan.time) && shown.plan !== key) {
-      await self.registration.showNotification(`It's time: ${m.title}`, {
-        ...NOTE, tag: 'keepsake-plan', body: m.plan.where ? `At ${m.plan.where}, like you planned.` : 'This is the time you picked.',
-      });
-      shown.plan = key;
-      did = true;
+  const show = (title, body, tag, extra = {}) => self.registration.showNotification(title, { ...NOTE, tag, body, ...extra });
+  const save = () => meta('readwrite', s => s.put(shown, 'shown'));
+
+  if (m.busyUntil === 'open' || (m.busyUntil && m.busyUntil >= key)) return;
+  if (shown.skip === key || (fresh && m.earned)) return;
+
+  // first morning after a break
+  if (m.busyUntil && m.busyUntil < key && shown.backFor !== m.busyUntil) {
+    if (daytime && mins >= toMinutes(m.time)) {
+      await show('Back to it?', "Here's an easy one to start.", 'keepsake-back');
+      shown.backFor = m.busyUntil;
+      shown.morning = key;
+      await save();
     }
-  } else if (mins >= toMinutes(m.time) && shown.morning !== key) {
-    await self.registration.showNotification("Today's challenge", {
-      ...NOTE, tag: 'keepsake-morning', body: fresh && m.title ? m.title : "There's a new challenge waiting.",
-    });
-    shown.morning = key;
-    did = true;
+    return;
   }
-  const planPending = fresh && m.plan && mins < toMinutes(m.plan.time) + 60;
-  if (!did && !planPending && m.evening && mins >= toMinutes('20:00') && shown.evening !== key) {
-    await self.registration.showNotification('Did you do it?', {
-      ...NOTE, tag: 'keepsake-evening', body: fresh && m.title ? `There's still time to do ${m.title} today.` : "Today's challenge is still waiting.",
-    });
+
+  // a day with a plan: the reminder comes at the planned time, then a check-in an hour later
+  if (fresh && m.plan) {
+    if (mins >= toMinutes(m.plan.time) && shown.plan !== key) {
+      await show(`It's time: ${m.title}`, m.plan.body, 'keepsake-plan');
+      shown.plan = key;
+    } else if (mins >= toMinutes(m.plan.time) + 60 && mins <= 21 * 60 + 30 && shown.evening !== key) {
+      await show(`Still up for ${m.title}?`, "Tomorrow's fine too.", 'keepsake-evening', { actions: [{ action: 'not-today', title: 'Not today' }] });
+      shown.evening = key;
+    }
+    return save();
+  }
+
+  const quiet = m.lastOpen ? daysBetween(m.lastOpen, key) : 0;
+  if (quiet >= 7) {
+    if (shown.finalFor === m.lastOpen || !daytime || mins < toMinutes(m.time)) return;
+    const landmark = now.getDay() === 1 || now.getDate() === 1;
+    if (!landmark || shown.freshDay === key) return;
+    const count = shown.freshFor === m.lastOpen ? shown.freshCount || 0 : 0;
+    if (count < 2) {
+      await show(now.getDate() === 1 ? 'New month.' : 'New week.', 'Want a small one?', 'keepsake-fresh');
+      Object.assign(shown, { freshFor: m.lastOpen, freshCount: count + 1, freshDay: key });
+    } else {
+      await show('Keepsake', "I'll stop reminding you. Your Book's here whenever you want it.", 'keepsake-final');
+      shown.finalFor = m.lastOpen;
+    }
+    return save();
+  }
+  if (quiet >= 5) {
+    if (shown.askFor !== m.lastOpen && daytime && mins >= toMinutes(m.time)) {
+      await show('Busy?', 'I can go quiet for a week.', 'keepsake-ask', {
+        actions: [{ action: 'go-quiet', title: 'Go quiet' }, { action: 'keep', title: 'Keep them' }],
+      });
+      shown.askFor = m.lastOpen;
+      await save();
+    }
+    return;
+  }
+
+  if (!(PACE_DAYS[m.pace] || PACE_DAYS.daily).includes(now.getDay())) return;
+  if (quiet >= 3 && Math.floor(now / 864e5) % 2) return; // every other day once things go quiet
+  if (mins >= toMinutes(m.time) && shown.morning !== key) {
+    const variants = fresh && m.title
+      ? [`Today: ${m.title}. ${m.why || ''}`.trim(), `Today's one: ${m.title}.`, `Something for today: ${m.title}.`]
+      : ["There's a new challenge waiting."];
+    await show("Today's challenge", variants[Math.floor(now / 864e5) % variants.length], 'keepsake-morning');
+    shown.morning = key;
+  } else if (m.evening && mins >= toMinutes('20:00') && mins <= 21 * 60 + 30 && shown.evening !== key && fresh) {
+    await show(`Still up for ${m.title}?`, "Tomorrow's fine too.", 'keepsake-evening', { actions: [{ action: 'not-today', title: 'Not today' }] });
     shown.evening = key;
   }
-  await meta('readwrite', s => s.put(shown, 'shown'));
+  return save();
 }
 self.addEventListener('periodicsync', e => {
   if (e.tag === 'keepsake-reminder') e.waitUntil(maybeRemind());
 });
 self.addEventListener('notificationclick', e => {
   e.notification.close();
+  const key = dayKey(new Date());
+  if (e.action === 'not-today') {
+    e.waitUntil(meta('readonly', s => s.get('shown')).then(shown => meta('readwrite', s => s.put({ ...(shown || {}), skip: key }, 'shown'))));
+    return;
+  }
+  if (e.action === 'go-quiet') {
+    // the app picks this up next time it opens
+    e.waitUntil(meta('readwrite', s => s.put({ busyUntil: dayKey(addDays(new Date(), 6)) }, 'inbox'))
+      .then(() => meta('readonly', s => s.get('reminder')))
+      .then(m => m && meta('readwrite', s => s.put({ ...m, busyUntil: dayKey(addDays(new Date(), 6)) }, 'reminder'))));
+    return;
+  }
+  if (e.action === 'keep') return;
   e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
     for (const c of list) if ('focus' in c) return c.focus();
     return self.clients.openWindow('./');
