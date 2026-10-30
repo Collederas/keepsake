@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#110f0d">
   <title>Keepsake</title>
-  <meta name="description" content="One real-life challenge a day. Every one you complete becomes a collectible card in the book of your life.">
+  <meta name="description" content="Real-life challenges at your own pace. Every one you complete becomes a card in the book of your life.">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -15,7 +15,7 @@
   <meta name="apple-mobile-web-app-title" content="Keepsake">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,700;0,9..144,900;1,9..144,500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,500;0,7..72,700;0,7..72,900;1,7..72,500&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
@@ -45,9 +45,9 @@
   </main>
 
   <nav class="tabs" aria-label="Main">
-    <button class="tab active" data-screen="today" aria-current="page"><svg class="ico"><use href="#i-sun"/></svg>Today</button>
-    <button class="tab" data-screen="deck"><svg class="ico"><use href="#i-deck"/></svg>Deck</button>
-    <button class="tab" data-screen="book"><svg class="ico"><use href="#i-book"/></svg>Book</button>
+    <button class="tab active" data-screen="today" aria-current="page"><svg class="ico" aria-hidden="true"><use href="#i-sun"/></svg>Today</button>
+    <button class="tab" data-screen="deck"><svg class="ico" aria-hidden="true"><use href="#i-deck"/></svg>Deck</button>
+    <button class="tab" data-screen="book"><svg class="ico" aria-hidden="true"><use href="#i-book"/></svg>Book</button>
   </nav>
 
   <!-- Proof sheet: seal a new card, or edit an existing one -->
@@ -55,6 +55,7 @@
     <div class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="proof-title">
       <button class="icon-btn sheet-close" data-close aria-label="Close"><svg class="ico"><use href="#i-close"/></svg></button>
       <h2 id="proof-title" class="proof-title"></h2>
+      <p class="proof-easy" id="proof-easy" hidden>Easy version</p>
       <div class="proof-top">
         <div class="preview-slot" id="preview-slot" aria-hidden="true"></div>
         <div class="proof-photo">

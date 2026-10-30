@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'keepsake-v8';
+const CACHE = 'keepsake-v11';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'data/challenges.json', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -60,7 +60,8 @@ const NOTE = { icon: 'icons/icon-192.png', badge: 'icons/icon-192.png' };
 // day you planned something), only on your pace days, nothing while you're busy, and it backs
 // off when you go quiet: every other day after 3 days, one "Busy?" question around day 5,
 // then only fresh starts on Mondays and the 1st, and after two of those a last message and silence.
-const PACE_DAYS = { daily: [0, 1, 2, 3, 4, 5, 6], few: [1, 3, 6], weekends: [0, 6] };
+const PACE_DAYS = { daily: [0, 1, 2, 3, 4, 5, 6], few: [1, 3, 6], weekly: [1, 4] };
+const weekStart = d => { const x = new Date(d); x.setHours(12, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return dayKey(x); };
 const daysBetween = (a, b) => Math.round((new Date(b + 'T12:00') - new Date(a + 'T12:00')) / 864e5);
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
 
@@ -72,12 +73,14 @@ async function maybeRemind() {
   const key = dayKey(now);
   const mins = now.getHours() * 60 + now.getMinutes();
   const daytime = mins >= 8 * 60 && mins <= 21 * 60 + 30;
-  const fresh = m.date === key;
+  const weekly = m.pace === 'weekly';
+  // is the challenge the app last saw still the current one?
+  const fresh = weekly ? m.periodStart === weekStart(now) : m.date === key;
   const show = (title, body, tag, extra = {}) => self.registration.showNotification(title, { ...NOTE, tag, body, ...extra });
   const save = () => meta('readwrite', s => s.put(shown, 'shown'));
 
   if (m.busyUntil === 'open' || (m.busyUntil && m.busyUntil >= key)) return;
-  if (shown.skip === key || (fresh && m.earned)) return;
+  if (shown.skip === key || (fresh && (m.earned || m.capped))) return;
 
   // first morning after a break
   if (m.busyUntil && m.busyUntil < key && shown.backFor !== m.busyUntil) {
@@ -91,7 +94,7 @@ async function maybeRemind() {
   }
 
   // a day with a plan: the reminder comes at the planned time, then a check-in an hour later
-  if (fresh && m.plan) {
+  if (fresh && m.plan && m.plan.date === key) {
     if (mins >= toMinutes(m.plan.time) && shown.plan !== key) {
       await show(`It's time: ${m.title}`, m.plan.body, 'keepsake-plan');
       shown.plan = key;
@@ -103,11 +106,14 @@ async function maybeRemind() {
   }
 
   const quiet = m.lastOpen ? daysBetween(m.lastOpen, key) : 0;
-  if (quiet >= 7) {
+  // a weekly rhythm is naturally quieter, so it backs off on a slower clock
+  const [askAt, freshAt] = weekly ? [14, 21] : [5, 7];
+  if (quiet >= freshAt) {
     if (shown.finalFor === m.lastOpen || !daytime || mins < toMinutes(m.time)) return;
     const landmark = now.getDay() === 1 || now.getDate() === 1;
     if (!landmark || shown.freshDay === key) return;
     const count = shown.freshFor === m.lastOpen ? shown.freshCount || 0 : 0;
+    if (count && daysBetween(shown.freshDay, key) < 7) return; // fresh starts at least a week apart
     if (count < 2) {
       await show(now.getDate() === 1 ? 'New month.' : 'New week.', 'Want a small one?', 'keepsake-fresh');
       Object.assign(shown, { freshFor: m.lastOpen, freshCount: count + 1, freshDay: key });
@@ -117,7 +123,7 @@ async function maybeRemind() {
     }
     return save();
   }
-  if (quiet >= 5) {
+  if (quiet >= askAt) {
     if (shown.askFor !== m.lastOpen && daytime && mins >= toMinutes(m.time)) {
       await show('Busy?', 'I can go quiet for a week.', 'keepsake-ask', {
         actions: [{ action: 'go-quiet', title: 'Go quiet' }, { action: 'keep', title: 'Keep them' }],
@@ -129,14 +135,20 @@ async function maybeRemind() {
   }
 
   if (!(PACE_DAYS[m.pace] || PACE_DAYS.daily).includes(now.getDay())) return;
-  if (quiet >= 3 && Math.floor(now / 864e5) % 2) return; // every other day once things go quiet
+  if (!weekly && quiet >= 3 && Math.floor(now / 864e5) % 2) return; // every other day once things go quiet
   if (mins >= toMinutes(m.time) && shown.morning !== key) {
-    const variants = fresh && m.title
-      ? [`Today: ${m.title}. ${m.why || ''}`.trim(), `Today's one: ${m.title}.`, `Something for today: ${m.title}.`]
-      : ["There's a new challenge waiting."];
-    await show("Today's challenge", variants[Math.floor(now / 864e5) % variants.length], 'keepsake-morning');
+    if (weekly && now.getDay() === 4) {
+      if (fresh && m.title) await show(`Still up for ${m.title} this week?`, 'No rush. Next week is fine too.', 'keepsake-morning');
+    } else {
+      const variants = fresh && m.title
+        ? (weekly
+          ? [`This week: ${m.title}. ${m.why || ''}`.trim(), `This week: ${m.title}.`, `Something for this week: ${m.title}.`]
+          : [`Today: ${m.title}. ${m.why || ''}`.trim(), `Today's one: ${m.title}.`, `Something for today: ${m.title}.`])
+        : ["There's a new challenge waiting."];
+      await show(weekly ? "This week's challenge" : "Today's challenge", variants[Math.floor(now / 864e5) % variants.length], 'keepsake-morning');
+    }
     shown.morning = key;
-  } else if (m.evening && mins >= toMinutes('20:00') && mins <= 21 * 60 + 30 && shown.evening !== key && fresh) {
+  } else if (!weekly && m.evening && mins >= toMinutes('20:00') && mins <= 21 * 60 + 30 && shown.evening !== key && fresh) {
     await show(`Still up for ${m.title}?`, "Tomorrow's fine too.", 'keepsake-evening', { actions: [{ action: 'not-today', title: 'Not today' }] });
     shown.evening = key;
   }
