@@ -21,6 +21,13 @@ Go to an open mic. Take a bus to nowhere. Ask a stranger over 60 for the best ad
 - **Secret challenges.** 17 hidden challenges show in the Deck as locked cards with a hint, like hidden achievements. They unlock after a particular challenge (Take the Mic → Encore), 5 cards in one category, courage level 5, 25 cards, cards on 7 different days, a Legendary card, or a completed dare. A dare link can open a secret early. Their conditions live in the `unlock` field of `data/challenges.json`.
 - **Dares and Stories.** Every card can be shared as a 1080×1920 Story image, or as a dare link (`?dare=<challenge>&from=<name>`) that opens the same challenge for a friend. Cards record who dared you.
 
+### For testers
+
+- **Backup and restore.** Settings → Your cards saves one file with every card and photo, and restores it on any phone. After the third card, Today suggests making one, because cards only live on the phone (and Safari on iPhone can clear a site's data after about a week away unless it's on the Home Screen).
+- **Feedback.** "Send feedback" in Settings and "How did that go? Tell me" under every finished card open an email to the maker, with the version, device, rhythm and card count filled in.
+- **Stats, opt-in only.** The app counts things on the phone: days opened, cards made (easy, foil, planned, dared), swaps and which challenges were swapped away, plans, Busy, reveal skips, settings and help visits. Nothing is sent automatically. "Share my stats" shows the exact text first, then opens an email the tester sends themselves. It never includes anything they wrote: no stories, places, names, Day Zero wish or photos. Today asks once after the second card and once after the sixth.
+- **Link preview.** Sharing the link in a chat shows the title, a line of description and `og.jpg`.
+
 Real push notifications, sent while the app is closed and on time on every platform, need a small server to send them. This prototype doesn't have one yet.
 
 ## Run it
@@ -40,6 +47,7 @@ It also works on GitHub Pages as is. All data stays on the device: cards are sto
 | `data/challenges.json` | The curated challenge database (133 challenges: 101 regular, 17 secret, 15 tiny) |
 | `index.html`, `style.css`, `app.js` | The prototype: Today / Deck / Book, the proof sheet, the card reveal, PNG export |
 | `sw.js`, `manifest.webmanifest`, `icons/` | Offline support, background reminders, home-screen install |
+| `og.jpg` | The image shown when the link is shared |
 
 ### Challenge schema
 

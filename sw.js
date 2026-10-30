@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'keepsake-v12';
+const CACHE = 'keepsake-v13';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'data/challenges.json', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', e => {
