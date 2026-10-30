@@ -529,9 +529,9 @@ function todayActions(ch) {
   const left = MAX_REROLLS - (d.shown.length - 1);
   let secondary;
   if (d.custom) {
-    secondary = `<button class="btn ghost" data-act="clear-custom">${icon('prev')} Back to ${W().cur} pick</button>`;
+    secondary = `<button class="btn ghost wide" data-act="clear-custom">${icon('prev')} Back to ${W().cur} pick</button>`;
   } else {
-    const prev = d.idx > 0 ? `<button class="btn ghost" data-act="prev-pick">${icon('prev')} Previous</button>` : '';
+    const prev = d.idx > 0 ? `<button class="btn ghost icon-only" data-act="prev-pick" aria-label="Previous">${icon('prev')}</button>` : '';
     const label = d.idx < d.shown.length - 1 ? 'Next' : left > 0 ? `Swap · ${left} left` : 'No swaps left';
     const aria = d.idx < d.shown.length - 1 ? 'Next' : left > 0 ? `Swap, ${left} left` : 'No swaps left';
     const disabled = d.idx >= d.shown.length - 1 && left <= 0;

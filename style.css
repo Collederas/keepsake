@@ -533,9 +533,14 @@ a.btn.primary { color: var(--accent-ink); }
 /* ---------- Today: the decision stays put ---------- */
 /* The challenge varies from week to week; I did it / Plan it / Swap never do. They sit in one place,
    in thumb reach just above the tabs, and a long challenge scrolls behind them. */
+/* the fade above I did it is tall enough that text underneath dims out instead of sitting flush against it */
 .actions.dock { position: fixed; z-index: 29; left: 0; right: 0; bottom: calc(72px + env(safe-area-inset-bottom)); max-width: 520px; margin: 0 auto;
-  gap: 8px; padding: 20px 16px 8px; background: linear-gradient(rgba(17, 15, 13, 0), var(--bg) 20px); }
-.actions.dock .actions-row .btn { min-height: 44px; padding-block: 8px; }
-#screen-today:has(.dock) { padding-bottom: 132px; }
+  gap: 8px; padding: 36px 16px 8px; background: linear-gradient(rgba(17, 15, 13, 0), var(--bg) 32px); }
+/* one row, always: Plan it, the previous pick as an arrow, and swap */
+.actions.dock .actions-row { flex-wrap: nowrap; gap: 8px; }
+.actions.dock .actions-row .btn { flex: 1 1 0; min-width: 0; min-height: 44px; padding: 8px 12px; white-space: nowrap; }
+.actions.dock .actions-row .btn.icon-only { flex: 0 0 48px; padding: 0; }
+.actions.dock .actions-row .btn.wide { flex-grow: 2; }
+#screen-today:has(.dock) { padding-bottom: 156px; }
 /* no strip of challenge text between the pinned actions and the tabs */
 body:has(#screen-today.active .dock) .tabs { background: var(--bg); }
