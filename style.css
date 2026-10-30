@@ -502,3 +502,14 @@ div.easier .link { color: var(--paper-accent); }
 /* ---------- card viewer: delete steps back ---------- */
 .stage-actions .link.danger { flex-basis: 100%; justify-content: center; font-weight: 400; color: #ffb4a0; }
 .sheet-panel > .link { margin: -4px 0 6px; font-weight: 400; color: var(--ink-2); }
+
+/* ---------- testing: feedback, stats, backup ---------- */
+a.btn { color: var(--ink); text-decoration: none; }
+a.btn.primary { color: var(--accent-ink); }
+.notice.tester { border-style: dashed; }
+.notice.tester strong { display: block; font: 700 18px/1.25 var(--serif); }
+.done-today .quiet-link { display: flex; width: fit-content; margin: 8px auto 0; font-weight: 400; color: var(--ink-2); }
+.stats-preview { margin: 0 0 16px; padding: 12px 14px; max-height: 40vh; overflow: auto; border-radius: 12px; background: var(--panel); color: var(--ink-2);
+  font: 400 13px/1.5 var(--sans); white-space: pre-wrap; word-break: break-word; }
+.notice.tester { margin-top: 22px; text-align: left; }
+.notice.tester .notice-sub { display: block; -webkit-line-clamp: unset; overflow: visible; }

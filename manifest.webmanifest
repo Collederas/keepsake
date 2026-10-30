@@ -1,7 +1,7 @@
 {
   "name": "Keepsake",
   "short_name": "Keepsake",
-  "description": "One real-life challenge a day. Every one you complete becomes a card in the book of your life.",
+  "description": "Do something worth telling. One real-life challenge a week, a little braver each time. Do it, and it becomes a card in the book of your life.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

@@ -198,6 +198,128 @@ const saveCards = () => store.set('ks.cards', state.cards);
 const saveDay = () => store.set('ks.day', state.day);
 const saveSettings = () => store.set('ks.settings', state.settings);
 const earnedIds = () => new Set(state.cards.map(c => c.challengeId));
+
+/* ================= testing: stats, feedback, backup ================= */
+// Stats are counted on this phone only. Nothing leaves it unless the tester taps "Share my stats"
+// and sends the email themselves, after seeing the exact text. Never anything they wrote:
+// no stories, places, names, wishes or photos.
+const VERSION = '2026-10-30';
+const FEEDBACK_EMAIL = 'collederas@gmail.com';
+const stats = Object.assign({ id: '', since: null, days: [], n: {}, swapped: {}, asks: 0, sentAt: null }, store.get('ks.stats', {}));
+if (!stats.id) { stats.id = Math.random().toString(36).slice(2, 8); stats.since = dayKey(); store.set('ks.stats', stats); }
+const saveStats = () => store.set('ks.stats', stats);
+function count(name, id) {
+  stats.n[name] = (stats.n[name] || 0) + 1;
+  if (id) stats.swapped[id] = (stats.swapped[id] || 0) + 1;
+  saveStats();
+}
+function markVisit() {
+  const k = dayKey();
+  if (stats.days.includes(k)) return;
+  stats.days.push(k);
+  if (stats.days.length > 366) stats.days.shift();
+  saveStats();
+}
+const device = () => `${isIOS() ? 'iPhone/iPad' : /android/i.test(navigator.userAgent) ? 'Android' : 'Computer'}${isStandalone() ? ', installed' : ', in the browser'}`;
+function contextLines() {
+  return [`Version ${VERSION} · ${device()}`, `Rhythm: ${rhythm()} · ${realCards().length} cards · courage ${courageProgress().cap}`, `Tester ${stats.id}`];
+}
+const mailto = (subject, body) => `mailto:${FEEDBACK_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+function feedbackLink(subject = 'Keepsake feedback', prompt = "What happened:\n\n\nWhat I expected or wanted:\n\n") {
+  return mailto(subject, `${prompt}\n---\n${contextLines().join('\n')}`);
+}
+function statsText() {
+  const cards = [...realCards()].sort((a, b) => a.no - b.no);
+  const zero = state.cards.find(isZero);
+  const weeks = new Set(stats.days.map(d => weekStart(new Date(d + 'T12:00')))).size;
+  const used = stats.since ? daysBetween(stats.since, dayKey()) + 1 : 0;
+  const p = state.settings.prefs;
+  const r = state.settings.reminder;
+  const perm = 'Notification' in window ? Notification.permission : 'unsupported';
+  const tally = obj => Object.entries(obj).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ') || 'none';
+  const lines = [
+    `Keepsake stats · version ${VERSION} · tester ${stats.id}`,
+    `Device: ${device()}`,
+    `Using it for ${used} days, opened on ${stats.days.length} of them, in ${weeks} different weeks`,
+    `Settings: ${rhythm()}, ${p.social}, budget ${p.budget}, time ${p.time}`,
+    `Reminders: notifications ${r.notify && perm === 'granted' ? 'on' : `off (${perm})`}${r.evening ? ', evening check-in' : ''}`,
+    `Busy right now: ${isBusy() ? 'yes' : 'no'}`,
+    `Day Zero: ${!zero ? (state.settings.dayZeroDone ? 'skipped' : 'not yet') : zero.pending ? 'wish written, not done yet' : 'done'}`,
+    `Cards: ${cards.length} · courage ${courageProgress().cap} · easy ${cards.filter(c => c.easier).length} · foil ${cards.filter(isFoil).length} · planned ${cards.filter(c => c.planned).length} · dared ${cards.filter(c => c.daredBy).length} · with photo ${cards.filter(c => c.photo).length}`,
+    `Done: ${cards.map(c => `${dayKey(new Date(c.date))} ${c.challengeId}`).join(', ') || 'nothing yet'}`,
+    `Swapped away: ${tally(stats.swapped)}`,
+    `Taps: ${tally(stats.n)}`,
+  ];
+  return lines.join('\n').slice(0, 1800);
+}
+// asks twice: after the 2nd card and after the 6th, and steps aside once answered either way
+const statsAskDue = () => [2, 6].filter(n => realCards().length >= n).length > stats.asks;
+const backupDue = () => realCards().length >= 3 && !state.settings.lastBackup && !state.settings.backupNudged;
+function testerNoticeHTML() {
+  if (backupDue()) return `
+    <aside class="notice tester">
+      <div><strong>Your cards only live on this phone.</strong>
+        <span class="notice-sub">Save a backup now and then, so a new phone or a cleared browser can't take them.</span>
+        <button class="btn" data-act="backup">Save a backup</button></div>
+      <button class="icon-btn" data-act="backup-later" aria-label="Not now">${icon('close')}</button>
+    </aside>`;
+  if (statsAskDue()) return `
+    <aside class="notice tester">
+      <div><strong>You're one of Keepsake's first testers.</strong>
+        <span class="notice-sub">Mind sending your stats? Numbers and which challenges you did, nothing you wrote.</span>
+        <button class="btn" data-act="stats">See what gets sent</button></div>
+      <button class="icon-btn" data-act="stats-later" aria-label="Not now">${icon('close')}</button>
+    </aside>`;
+  return '';
+}
+function statsSheetHTML() {
+  return `
+    <h2 class="proof-title">Share my stats</h2>
+    <p>This is everything that gets sent. Nothing you wrote, no photos, no names. It opens in your email so you can read it again before sending.</p>
+    <pre class="stats-preview">${esc(statsText())}</pre>
+    <div class="actions">
+      <a class="btn primary big" href="${esc(mailto('Keepsake stats', statsText()))}" data-act="stats-sent">Send by email</a>
+      <button class="btn ghost" data-act="stats-copy">Copy it instead</button>
+    </div>`;
+}
+const blobToDataUrl = blob => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); });
+async function saveBackup() {
+  const photos = {};
+  for (const c of state.cards) {
+    if (!c.photo) continue;
+    const b = await getPhoto(c.id);
+    if (b) photos[c.id] = await blobToDataUrl(b);
+  }
+  state.settings.lastBackup = dayKey();
+  saveSettings();
+  const data = { app: 'keepsake', backup: 1, made: new Date().toISOString(), cards: state.cards, day: state.day, settings: state.settings, stats, photos };
+  const name = `keepsake-backup-${dayKey()}.json`;
+  const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+  const file = new File([blob], name, { type: 'application/json' });
+  count('backup');
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: 'Keepsake backup' }); return true; } catch (e) { if (e.name === 'AbortError') return false; }
+  }
+  download(blob, name);
+  return true;
+}
+async function readBackup(file) {
+  try {
+    const data = JSON.parse(await file.text());
+    if (data.app !== 'keepsake' || !Array.isArray(data.cards)) throw new Error('not a backup');
+    return data;
+  } catch (e) { return null; }
+}
+async function restoreBackup(data) {
+  store.set('ks.cards', data.cards);
+  store.set('ks.day', data.day || null);
+  store.set('ks.settings', data.settings || {});
+  if (data.stats) store.set('ks.stats', data.stats);
+  for (const [id, url] of Object.entries(data.photos || {})) {
+    try { await putPhoto(id, await (await fetch(url)).blob()); } catch (e) { /* skip a broken photo */ }
+  }
+  location.reload();
+}
 const daysBetween = (a, b) => Math.round((new Date(b + 'T12:00') - new Date(a + 'T12:00')) / 864e5);
 const isBusy = () => { const b = state.settings.busyUntil; return b === 'open' || (!!b && b >= dayKey()); };
 // people who set up before rhythms existed keep their daily challenge
@@ -586,7 +708,8 @@ function renderToday() {
         <button class="btn" data-goto="book">See it in your Book</button>` : `<h2>${fewCapped() ? "That's three this week." : W().see}</h2>
         <p>Next challenge <span class="countdown" id="countdown"></span>.</p>
         <button class="btn" data-goto="deck">Peek at the deck</button>`}
-      </div>${upcomingHTML()}`;
+        <a class="link quiet-link" href="${esc(feedbackLink(`Keepsake: ${cardTitle(earned)}`, 'How it went:\n\n\nAnything in the app that got in the way:\n\n'))}" data-act="feedback">How did that go? Tell me</a>
+      </div>${testerNoticeHTML()}${upcomingHTML()}`;
     fillTodayCard(el, earned);
     if (!isBusy()) tickCountdown();
   } else {
@@ -615,7 +738,7 @@ function onboardingHTML() {
   const step = state.onboardStep;
   if (step === 0) return `
     <section class="onboard">
-      <h2>Real-life challenges, at your pace.</h2>
+      <h2>Do something worth telling.</h2>
       <ul class="how">
         <li>Go do a challenge, out in the real world.</li>
         <li>Come back and add a photo or a line.</li>
@@ -674,6 +797,7 @@ function makeDayZero() {
   saveCards();
   state.settings.dayZeroDone = true;
   saveSettings();
+  count('day-zero');
   state.zeroOpen = false;
   if (!state.settings.onboarded) finishOnboarding(); else renderToday();
   toast("It's card #000 in your Book. Fill it in once you've done it.");
@@ -725,6 +849,19 @@ function settingsHTML() {
     <p class="hint">Kicks in from your next challenge.</p>
     <h3 class="sub">Reminders</h3>
     <div id="reminder-box">${reminderHTML()}</div>
+    <h3 class="sub">Your cards</h3>
+    <p class="hint">Your cards only live on this phone. ${state.settings.lastBackup ? `Last backup: ${fmtDate(state.settings.lastBackup + 'T12:00')}.` : 'No backup yet.'}</p>
+    <div class="busy-opts">
+      <button class="btn" data-act="backup">Save a backup</button>
+      <button class="btn" data-act="restore">Restore a backup</button>
+    </div>
+    <input type="file" id="restore-input" accept="application/json,.json" hidden>
+    <h3 class="sub">Testing Keepsake</h3>
+    <p class="hint">Thanks for trying it early. Anything confusing, broken or great, I want to hear it.</p>
+    <div class="busy-opts">
+      <a class="btn" href="${esc(feedbackLink())}" data-act="feedback">Send feedback</a>
+      <button class="btn" data-act="stats">Share my stats</button>
+    </div>
     ${installHTML() ? `<h3 class="sub">App</h3>${installHTML()}` : ''}`;
 }
 function busyUntilText() {
@@ -746,6 +883,7 @@ function refreshReminderUI() {
   if (box) box.innerHTML = reminderHTML();
 }
 function finishOnboarding() {
+  count(state.onboardStep === 0 ? 'setup-skipped' : 'setup-done');
   state.settings.onboarded = true;
   saveSettings();
   // re-pick today's challenge with the answers, unless the user already chose one
@@ -964,6 +1102,7 @@ function openPlanSheet(ch) {
 }
 // Saves a plan; a plan inside the current day or week makes it the current challenge, a later one frees it up.
 function commitPlan(p) {
+  count('plan');
   const d = today();
   savePlans([...plans().filter(x => x.id !== p.id && x.date !== p.date), p]);
   if (inPeriod(p.date)) {
@@ -1032,7 +1171,7 @@ function upcomingHTML() {
 /* ================= dares + sharing ================= */
 const dareLink = id => `${APP_URL}?dare=${encodeURIComponent(id)}${state.settings.name ? `&from=${encodeURIComponent(state.settings.name)}` : ''}`;
 async function copyText(text, done) {
-  try { await navigator.clipboard.writeText(text); toast(done); } catch (e) { window.prompt('Copy this link:', text); }
+  try { await navigator.clipboard.writeText(text); toast(done); } catch (e) { window.prompt('Copy this:', text); }
 }
 async function shareDare(ch, card) {
   const link = dareLink(ch.id);
@@ -1176,6 +1315,7 @@ function show(name) {
     if (on) t.setAttribute('aria-current', 'page'); else t.removeAttribute('aria-current');
   });
   ({ today: renderToday, deck: renderDeck, book: renderBook })[name]();
+  if (name !== 'today') count(`open-${name}`);
   updateDeckBadge();
   window.scrollTo(0, 0);
 }
@@ -1906,6 +2046,7 @@ function onAction(t) {
   const card = id => state.cards.find(c => c.id === id);
   switch (t.dataset.act) {
     case 'reroll':
+      if (d.idx >= d.shown.length - 1 && d.shown.length - 1 < MAX_REROLLS) count('swap', currentId(d));
       d.custom = null;
       if (d.idx < d.shown.length - 1) d.idx++;
       else if (d.shown.length - 1 < MAX_REROLLS) { d.shown.push(nextPick()); d.idx++; }
@@ -1925,6 +2066,7 @@ function onAction(t) {
       break;
     case 'pick': {
       if (d.earned) return;
+      count('pick-from-deck');
       d.custom = t.dataset.id;
       saveDay();
       closeDeckSheets();
@@ -1960,6 +2102,7 @@ function onAction(t) {
       show('deck');
       break;
     case 'help':
+      count('help');
       openSheet(`
         <h2 class="proof-title">How this works</h2>
         <p><strong>Courage</strong> is how bold your challenges get. You start at 2. Do three challenges at your level and the next level opens up. Easy versions don't count toward it, but they still go in your Book.</p>
@@ -1979,12 +2122,14 @@ function onAction(t) {
       openProof(DAY_ZERO.id, { kind: 'zero' });
       break;
     case 'zero-skip':
+      count('day-zero-skip');
       state.settings.dayZeroDone = true;
       saveSettings();
       renderToday();
       break;
     case 'busy-set': {
       const len = t.dataset.len;
+      count(`busy-${len}`);
       state.settings.busyUntil = len === 'open' ? 'open' : dayKey(addDays(new Date(), Number(len) - 1));
       saveSettings();
       closeDeckSheets();
@@ -1993,6 +2138,7 @@ function onAction(t) {
       break;
     }
     case 'busy-end':
+      count('busy-end');
       state.settings.busyUntil = null;
       state.settings.backFrom = dayKey();
       saveSettings();
@@ -2002,6 +2148,7 @@ function onAction(t) {
       break;
     case 'busy-peek':
     case 'start-small':
+      count(t.dataset.act);
       d.custom = pickTiny();
       d.busyPeek = true;
       saveDay();
@@ -2018,6 +2165,7 @@ function onAction(t) {
       break;
     }
     case 'easy-on':
+      count('go-easy');
       d.easyId = currentId(d);
       saveDay();
       renderToday();
@@ -2034,6 +2182,46 @@ function onAction(t) {
       break;
     case 'settings':
       openSheet(settingsHTML(), 'Settings');
+      count('settings');
+      break;
+    case 'feedback':
+      count('feedback');
+      break;
+    case 'stats':
+      openSheet(statsSheetHTML(), 'Share my stats', { over: true });
+      break;
+    case 'stats-sent':
+      stats.sentAt = dayKey();
+      stats.asks = Math.max(stats.asks, [2, 6].filter(n => realCards().length >= n).length);
+      count('stats-sent');
+      setTimeout(() => { closeDeckSheets(); renderToday(); }, 600);
+      break;
+    case 'stats-copy':
+      copyText(statsText(), 'Copied. Paste it in an email or message to me.');
+      stats.asks = Math.max(stats.asks, [2, 6].filter(n => realCards().length >= n).length);
+      saveStats();
+      break;
+    case 'stats-later':
+      stats.asks++;
+      saveStats();
+      renderToday();
+      break;
+    case 'backup':
+      saveBackup().then(ok => {
+        if (ok) toast('Backup saved');
+        if (activeScreen() === 'today') renderToday();
+      });
+      break;
+    case 'backup-later':
+      state.settings.backupNudged = true;
+      saveSettings();
+      renderToday();
+      break;
+    case 'restore':
+      $('#restore-input').click();
+      break;
+    case 'restore-yes':
+      if (state.restoreData) restoreBackup(state.restoreData);
       break;
     case 'onboard-next':
       state.onboardStep++;
@@ -2056,6 +2244,7 @@ function onAction(t) {
       showNote("Today's challenge", currentChallenge().title, 'keepsake-test');
       break;
     case 'calendar':
+      count('calendar');
       calendarFile();
       break;
     case 'install':
@@ -2107,12 +2296,15 @@ function onAction(t) {
       break;
     }
     case 'plan-cancel':
+      count('plan-cancel');
       cancelPlan(t.dataset.id);
       break;
     case 'dare-friend':
+      count('dare-sent');
       shareDare(state.byId.get(t.dataset.id));
       break;
     case 'share': {
+      count('share');
       const c = card(t.dataset.id);
       if (c) openShareSheet(c);
       break;
@@ -2240,7 +2432,22 @@ function bind() {
   document.addEventListener('change', e => {
     const t = e.target;
     const r = state.settings.reminder;
-    if (t.name === 'plan-obstacle') pickObstacle(t.value);
+    if (t.id === 'restore-input' && t.files && t.files[0]) {
+      readBackup(t.files[0]).then(data => {
+        t.value = '';
+        if (!data) return toast("That file isn't a Keepsake backup.");
+        state.restoreData = data;
+        const n = data.cards.filter(c => !isZero(c)).length;
+        openSheet(`
+          <h2 class="proof-title">Restore this backup?</h2>
+          <p>It's from ${fmtDate(data.made)}, with ${n} card${n === 1 ? '' : 's'}. It replaces everything on this phone, including cards made since then.</p>
+          <div class="actions">
+            <button class="btn primary big" data-act="restore-yes">Replace with the backup</button>
+            <button class="btn ghost" data-close>Keep what's here</button>
+          </div>`, 'Restore a backup', { over: true });
+      });
+    }
+    else if (t.name === 'plan-obstacle') pickObstacle(t.value);
     else if (t.name === 'plan-quick') { $('#plan-time').value = t.value; updatePlanPreview(); }
     else if (t.id === 'plan-time') {
       document.querySelectorAll('input[name="plan-quick"]').forEach(q => { q.checked = q.value === t.value; });
@@ -2261,6 +2468,7 @@ function bind() {
     if (!run || !run.started || run.done) return;
     if (performance.now() - run.startedAt < 400) return;
     if (e.target.closest('.sound-btn, .stage-actions')) return;
+    count('reveal-skip');
     finishReveal(run);
   });
   $('#sound-btn').addEventListener('click', () => {
@@ -2300,7 +2508,7 @@ function bind() {
       const over = document.querySelectorAll('.deck-sheet');
       if (over.length) return over[over.length - 1].close();
       if (stageOpen) {
-        if (run && !run.done) finishReveal(run); // Esc skips straight to the card
+        if (run && !run.done) { count('reveal-skip'); finishReveal(run); } // Esc skips straight to the card
         else if ($('#stage-actions').classList.contains('show')) {
           const done = $('[data-act="reveal-done"]');
           if (done) done.click(); else closeStage();
@@ -2353,6 +2561,7 @@ async function boot() {
   if (last && daysBetween(last, dayKey()) >= 5 && !state.welcomeBack) state.welcomeBack = 'gap';
   state.settings.lastOpen = dayKey();
   saveSettings();
+  markVisit();
   // answers given on notification buttons while the app was closed
   try {
     const inbox = await idbDo('readonly', st => st.get('inbox'), 'meta');
