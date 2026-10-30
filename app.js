@@ -2632,6 +2632,11 @@ async function boot() {
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
+    // when a new version takes over, reload once so the new files are the ones on screen
+    if (navigator.serviceWorker.controller) {
+      let reloaded = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => { if (!reloaded) { reloaded = true; location.reload(); } });
+    }
     // a reminder tapped while the app was already open
     navigator.serviceWorker.addEventListener('message', e => { if (e.data && e.data.src === 'reminder') count('opened-from-reminder'); });
   }

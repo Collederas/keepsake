@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'keepsake-v15';
+const CACHE = 'keepsake-v16';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'data/challenges.json', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -19,7 +19,10 @@ self.addEventListener('fetch', e => {
   const url = new URL(req.url);
   const isFont = url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com';
   if (url.origin !== location.origin && !isFont) return;
-  e.respondWith(fetch(req)
+  // our own files skip the browser's HTTP cache (GitHub Pages keeps them for 10 minutes),
+  // so a new version shows up on the next open instead of up to 10 minutes later
+  const live = url.origin === location.origin ? fetch(req.url, { cache: 'no-cache', credentials: 'same-origin' }) : fetch(req);
+  e.respondWith(live
     .then(res => {
       if (res.ok || res.type === 'opaque') {
         const copy = res.clone();
