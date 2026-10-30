@@ -513,3 +513,17 @@ a.btn.primary { color: var(--accent-ink); }
   font: 400 13px/1.5 var(--sans); white-space: pre-wrap; word-break: break-word; }
 .notice.tester { margin-top: 22px; text-align: left; }
 .notice.tester .notice-sub { display: block; -webkit-line-clamp: unset; overflow: visible; }
+
+/* ---------- settings: one short list, each row opens its own page ---------- */
+.settings-list { display: grid; gap: 6px; }
+.set-label { margin: 18px 4px 2px; font: 700 14px var(--sans); color: var(--ink-3); }
+.set-group { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+.set-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 54px; padding: 10px 12px 10px 16px; border: 0; border-top: 1px solid var(--line);
+  background: none; color: var(--ink); font: 500 16px var(--sans); text-align: left; text-decoration: none; cursor: pointer; }
+.set-row:first-child { border-top: 0; }
+.set-row:active { background: var(--panel-2); }
+.set-row > span:first-child { flex: none; }
+.set-val { flex: 1; min-width: 0; text-align: right; color: var(--ink-3); font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.set-row .ico { flex: none; width: 18px; height: 18px; margin-left: auto; color: var(--ink-3); }
+.set-val + .ico { margin-left: 0; }
+.set-install { margin-top: 14px; }

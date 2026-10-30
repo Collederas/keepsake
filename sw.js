@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'keepsake-v13';
+const CACHE = 'keepsake-v14';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'data/challenges.json', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -172,8 +172,9 @@ self.addEventListener('notificationclick', e => {
     return;
   }
   if (e.action === 'keep') return;
+  // tell the app a reminder brought you back, so testers' stats can show whether reminders work
   e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
-    for (const c of list) if ('focus' in c) return c.focus();
-    return self.clients.openWindow('./');
+    for (const c of list) if ('focus' in c) { c.postMessage({ src: 'reminder' }); return c.focus(); }
+    return self.clients.openWindow('./?src=reminder');
   }));
 });
