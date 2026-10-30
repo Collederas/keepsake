@@ -2,7 +2,9 @@
 
 **One real-life challenge a day. Every one you complete becomes a collectible card in the book of your life.**
 
-Go to an open mic. Take a bus to nowhere. Ask a stranger over 60 for the best advice they ever got. When you've done it, add a photo and one line about what happened. The app then deals you a card: it charges up through the rarity tiers, flips, bursts with confetti, plays a chime and vibrates. The card lands in your Book, numbered, dated and kept forever. You can export it as a high-resolution image to share.
+Go to an open mic. Take a bus to nowhere. Ask a stranger over 60 for the best advice they ever got. When you've done it, add a photo and one line about what happened, and watch a live preview of your card. Then tap the face-down card. It charges up through the rarity tiers, which stay hidden until this moment, and flips. Your photo develops like a print, your words ink in, and a wax seal presses into the corner. Epic and Legendary cards also get a burst of light and confetti. The card lands in your Book, numbered, dated and kept forever. You can edit its words later or export it as a high-resolution image to share.
+
+One card a day. The Deck is for browsing: you can swap any challenge in as today's, and a challenge finished after midnight can still be sealed the next day.
 
 ## Run it
 
