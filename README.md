@@ -1,16 +1,16 @@
 # Keepsake
 
-**One real-life challenge a day. Every one you complete becomes a collectible card in the book of your life.**
+**Real-life challenges at your own pace, one a week by default. Every one you complete becomes a collectible card in the book of your life.**
 
 Go to an open mic. Take a bus to nowhere. Ask a stranger over 60 for the best advice they ever got. When you've done it, add a photo and one line about what happened, and watch a live preview of your card. Then tap the face-down card. It charges up through the rarity tiers, which stay hidden until this moment, and flips. Your photo develops like a print, your words ink in, and a wax seal presses into the corner. Epic and Legendary cards also get a burst of light and confetti. The card lands in your Book, numbered, dated and kept forever. You can edit its words later or export it as a high-resolution image to share.
 
-One card a day. The Deck is for browsing: you can swap any challenge in as today's, and a challenge finished after midnight can still be sealed the next day.
+**Rhythm:** *Once a week* (the default; a new challenge every Monday, with the whole week to do it), *A few a week* (up to three, one per day) or *Every day*. People who set up before rhythms existed stay on every day. The Deck is for browsing: you can swap any challenge in as the current one, and a challenge finished just after the day or week ends can still be added to it.
 
 ### Built to keep you going
 
 - **Day Zero.** Setup ends with one question, "What's one thing you've always wanted to try?". The answer becomes card #000, so the Book never starts empty. It doesn't count toward progress.
-- **A gentle start that builds courage.** Setup questions (solo or social, budget, time, and how often) filter the deck. You start at courage level 2, and every three challenges at your level unlock the next one.
-- **Reminders that back off.** One morning reminder on your pace days, worded as an invitation. The 8pm check-in is opt-in, except on days you planned something, and has a "Not today" button. If you go quiet, reminders come every other day after 3 days. Around day 5 the app asks once whether you're busy. After a week, it only sends a fresh start on a Monday or the 1st, and after two of those it sends a last message and stops. Opening the app resets all of this. Nothing is ever "missed" or "late". There are two ways to get reminders:
+- **A gentle start that builds courage.** Setup questions (how often, solo or social, budget, time) shape the deck. You start at courage level 2, and every three challenges at your level unlock the next one.
+- **Reminders that back off.** On a weekly rhythm, a nudge on Monday and a check-in on Thursday. Otherwise, one morning reminder on your rhythm's days, worded as an invitation. The 8pm check-in is opt-in, except on days you planned something, and has a "Not today" button. If you go quiet, reminders come every other day after 3 days. Around day 5 the app asks once whether you're busy. After a week, it only sends a fresh start on a Monday or the 1st, and after two of those it sends a last message and stops. Opening the app resets all of this. Nothing is ever "missed" or "late". There are two ways to get reminders:
   - **Notifications:** in browsers that support background checks (Chrome on Android, installed app), and while the app is open.
   - **A calendar file** with repeating events, which works everywhere and is always on time.
 - **Busy?** Pause all reminders for 1 week, 2 weeks or until you're back. Today then shows a calm screen with an optional 2-minute challenge, and coming back starts with an easy one. 15 tiny challenges (`"tiny": true`) cover busy days.

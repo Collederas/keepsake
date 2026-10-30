@@ -24,10 +24,10 @@ const EVENING_TIME = '20:00';
 const APP_URL = location.origin + location.pathname;
 const SANS = '"Atkinson Hyperlegible Next", "Atkinson Hyperlegible", sans-serif';
 const PREFS = {
+  pace:   { label: 'How often?', options: [['weekly', 'Once a week'], ['few', 'A few a week'], ['daily', 'Every day']] },
   social: { label: 'Solo or with people?', options: [['solo', 'Mostly solo'], ['any', 'Either'], ['social', 'With people']] },
   budget: { label: 'Budget', options: [['free', 'Free only'], ['some', 'A little'], ['any', "Don't mind"]] },
   time:   { label: 'Time on a normal day', options: [['short', 'Under 30 min'], ['hour', 'About an hour'], ['any', 'Hours, sometimes']] },
-  pace:   { label: 'How often?', options: [['daily', 'Every day'], ['few', 'A few times a week'], ['weekends', 'Weekends']] },
 };
 // Day Zero: the first card, made during setup from something you've always wanted to try.
 // It lives outside the deck, so it never gets picked and never counts toward progress.
@@ -44,8 +44,9 @@ const OBSTACLES = [
   ['forget', 'I forget', 'I forget', 'put it in my calendar'],
   ['other', 'Something else', '', ''],
 ];
-// pace: which days reminders may come on (0 = Sunday)
-const PACE_DAYS = { daily: [0, 1, 2, 3, 4, 5, 6], few: [1, 3, 6], weekends: [0, 6] };
+// rhythm: which days reminders may come on (0 = Sunday); weekly gets a Monday nudge and a Thursday check-in
+const PACE_DAYS = { daily: [0, 1, 2, 3, 4, 5, 6], few: [1, 3, 6], weekly: [1, 4] };
+const FEW_PER_WEEK = 3;
 // courage grows by doing: three cards at your current level unlock the next one
 const START_COURAGE = 2;
 const CARDS_PER_LEVEL = 3;
@@ -167,7 +168,7 @@ const state = {
   day: store.get('ks.day', null),
   settings: Object.assign({
     sound: true, name: '', onboarded: false, pendingDare: null, seenSecrets: [], plans: [],
-    prefs: { social: 'any', budget: 'any', time: 'any', pace: 'daily' },
+    prefs: { pace: 'weekly', social: 'any', budget: 'any', time: 'any' },
     reminder: { time: '09:00', evening: false, notify: false },
     busyUntil: null, lastOpen: null, dayZeroDone: false,
   }, store.get('ks.settings', {})),
@@ -186,7 +187,31 @@ const saveSettings = () => store.set('ks.settings', state.settings);
 const earnedIds = () => new Set(state.cards.map(c => c.challengeId));
 const daysBetween = (a, b) => Math.round((new Date(b + 'T12:00') - new Date(a + 'T12:00')) / 864e5);
 const isBusy = () => { const b = state.settings.busyUntil; return b === 'open' || (!!b && b >= dayKey()); };
-const paceDay = (date = new Date()) => (PACE_DAYS[state.settings.prefs.pace] || PACE_DAYS.daily).includes(date.getDay());
+// people who set up before rhythms existed keep their daily challenge
+const rhythm = () => ({ weekends: 'weekly' })[state.settings.prefs.pace] || state.settings.prefs.pace || 'daily';
+const weekly = () => rhythm() === 'weekly';
+const paceDay = (date = new Date()) => PACE_DAYS[rhythm()].includes(date.getDay());
+function weekStart(date = new Date()) {
+  const x = new Date(date);
+  x.setHours(12, 0, 0, 0);
+  x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
+  return dayKey(x);
+}
+const periodKey = (date = new Date()) => weekly() ? weekStart(date) : dayKey(date);
+const prevPeriodKey = () => weekly() ? weekStart(addDays(new Date(), -7)) : dayKey(addDays(new Date(), -1));
+const periodEnd = () => weekly() ? dayKey(addDays(new Date(weekStart() + 'T12:00'), 6)) : dayKey();
+const inPeriod = date => date >= dayKey() && date <= periodEnd();
+const weekCount = () => realCards().filter(c => weekStart(new Date(c.date)) === weekStart()).length;
+const fewCapped = () => rhythm() === 'few' && weekCount() >= FEW_PER_WEEK;
+function nextStart() {
+  const now = new Date();
+  if (weekly() || fewCapped()) return new Date(addDays(new Date(weekStart() + 'T00:00'), 7));
+  return addDays(new Date(now.getFullYear(), now.getMonth(), now.getDate()), 1);
+}
+// the words that change with the rhythm
+const W = () => weekly()
+  ? { cur: "this week's", Cur: "This week's", now: 'this week', next: 'next week', see: 'See you next week.', one: 'One card a week' }
+  : { cur: "today's", Cur: "Today's", now: 'today', next: 'tomorrow', see: 'See you tomorrow.', one: 'One card a day' };
 function pickTiny() {
   const d = today();
   const done = earnedIds();
@@ -232,16 +257,16 @@ const currentId = d => d.custom || d.shown[d.idx];
 const isEasy = d => d.easyId === currentId(d);
 
 function today() {
-  const key = dayKey();
+  const key = periodKey();
   const old = state.day;
   if (old && old.idx == null) old.idx = old.shown.length - 1; // older saved shape
   if (!old || old.date !== key) {
-    // a challenge finished after midnight can still be sealed the next day
-    const prev = old && old.date === dayKey(addDays(new Date(), -1)) && !old.earned ? { id: currentId(old), easy: isEasy(old) } : null;
+    // a challenge finished just after the period ended can still be added to it
+    const prev = old && old.date === prevPeriodKey() && !old.earned ? { id: currentId(old), easy: isEasy(old) } : null;
     state.day = { date: key, shown: [], idx: 0, custom: null, earned: null, prev };
     // a break that ran out ends quietly, with an easy start
     const b = state.settings.busyUntil;
-    if (b && b !== 'open' && b < key) { state.settings.busyUntil = null; saveSettings(); state.welcomeBack = 'busy'; }
+    if (b && b !== 'open' && b < dayKey()) { state.settings.busyUntil = null; saveSettings(); state.welcomeBack = 'busy'; }
     // a dare accepted after today's card was sealed becomes the next day's challenge
     const pd = state.settings.pendingDare;
     if (pd) {
@@ -252,7 +277,7 @@ function today() {
     const yesterday = dayKey(addDays(new Date(), -1));
     const kept = plans().filter(p => p.date >= yesterday);
     if (kept.length !== plans().length) savePlans(kept);
-    const planned = kept.find(p => p.date === key && state.byId.has(p.id) && !earnedIds().has(p.id));
+    const planned = kept.find(p => inPeriod(p.date) && state.byId.has(p.id) && !earnedIds().has(p.id));
     if (planned && !state.day.custom) state.day.custom = planned.id;
     state.day.shown.push(nextPick());
     saveDay();
@@ -280,7 +305,7 @@ function fitsPrefs(c) {
 function nextPick() {
   const d = state.day;
   const done = earnedIds();
-  const skip = id => d.shown.includes(id) || (d.prev && d.prev.id === id) || plans().some(p => p.id === id && p.date !== d.date);
+  const skip = id => d.shown.includes(id) || (d.prev && d.prev.id === id) || plans().some(p => p.id === id && !inPeriod(p.date));
   const { cap } = courageProgress();
   const fresh = state.challenges.filter(c => !done.has(c.id) && !skip(c.id) && isUnlocked(c));
   // the first pool that still has something in it: fits your life and sits at the edge of your courage
@@ -332,7 +357,7 @@ function todayActions(ch) {
   const left = MAX_REROLLS - (d.shown.length - 1);
   let secondary;
   if (d.custom) {
-    secondary = `<button class="btn ghost" data-act="clear-custom">${icon('prev')} Back to today's pick</button>`;
+    secondary = `<button class="btn ghost" data-act="clear-custom">${icon('prev')} Back to ${W().cur} pick</button>`;
   } else {
     const prev = d.idx > 0 ? `<button class="btn ghost" data-act="prev-pick">${icon('prev')} Previous</button>` : '';
     const label = d.idx < d.shown.length - 1 ? 'Next' : left > 0 ? `Swap · ${left} left` : 'No swaps left';
@@ -421,7 +446,9 @@ function renderToday() {
     <header class="topbar">
       <h1 class="logo">Keep<b>sake</b></h1>
       <span class="topbar-right">
-        <span class="topbar-meta">${new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</span>
+        <span class="topbar-meta">${weekly()
+          ? `Week of ${new Date(weekStart() + 'T12:00').toLocaleDateString(undefined, { day: 'numeric', month: 'long' })}`
+          : new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</span>
         <button class="icon-btn" data-act="settings" aria-label="Settings">${icon('gear')}</button>
       </span>
     </header>`;
@@ -441,8 +468,8 @@ function renderToday() {
   const prevCh = d.prev && state.byId.get(d.prev.id);
   const prevNote = prevCh ? `
     <aside class="notice">
-      <div>Did yesterday's <strong>${esc(prevCh.title)}</strong> after midnight?<br>
-        <button class="btn" data-act="claim-prev">Add it to yesterday</button>
+      <div>Did ${weekly() ? "last week's" : "yesterday's"} <strong>${esc(prevCh.title)}</strong> ${weekly() ? 'late on Sunday' : 'after midnight'}?<br>
+        <button class="btn" data-act="claim-prev">Add it to ${weekly() ? 'last week' : 'yesterday'}</button>
       </div>
       <button class="icon-btn" data-act="dismiss-prev" aria-label="Dismiss">${icon('close')}</button>
     </aside>` : '';
@@ -453,7 +480,7 @@ function renderToday() {
         ${state.welcomeBack === 'busy' ? '<span class="notice-sub">Back to it? Here\'s an easy one to start.</span>' : ''}
         <span class="notice-actions">
           <button class="btn primary" data-act="start-small">Start small</button>
-          <button class="btn" data-act="dismiss-welcome">Show me today's</button>
+          <button class="btn" data-act="dismiss-welcome">Show me ${W().cur}</button>
         </span>
       </div>
     </aside>` : '';
@@ -475,12 +502,23 @@ function renderToday() {
   }
 
   const earned = d.earned && state.cards.find(c => c.id === d.earned);
+  if (!earned && fewCapped()) {
+    el.innerHTML = `${header}${dareNote}
+      <div class="done-today">
+        <h2>That's three this week.</h2>
+        <p>Next challenge <span class="countdown" id="countdown"></span>.</p>
+        <button class="btn" data-goto="book">See them in your Book</button>
+      </div>${upcomingHTML()}`;
+    tickCountdown();
+    syncReminder();
+    return;
+  }
   if (earned) {
     el.innerHTML = `${header}${dareNote}${prevNote}
       <div class="done-today">
         <div class="mini-slot"></div>
-        <h2>See you tomorrow.</h2>
-        <p>Next challenge in <span class="countdown" id="countdown"></span>.</p>
+        <h2>${fewCapped() ? "That's three this week." : W().see}</h2>
+        <p>Next challenge <span class="countdown" id="countdown"></span>.</p>
         <button class="btn" data-goto="deck">Peek at the deck</button>
       </div>${upcomingHTML()}`;
     fillTodayCard(el, earned);
@@ -511,7 +549,7 @@ function onboardingHTML() {
   const step = state.onboardStep;
   if (step === 0) return `
     <section class="onboard">
-      <h2>One real-life challenge a day.</h2>
+      <h2>Real-life challenges, at your pace.</h2>
       <ul class="how">
         <li>Go do the day's challenge, out in the real world.</li>
         <li>Come back and add a photo or a line.</li>
@@ -533,7 +571,7 @@ function onboardingHTML() {
   return `
     <section class="onboard">
       <h2>Want a nudge?</h2>
-      <p>A morning reminder with the day's challenge, and an evening check-in if you haven't completed it yet. Never more than that, and it backs off when you're busy.</p>
+      <p>A reminder when there's a new challenge, and a check-in if you haven't completed it yet. Never more than that, and it backs off when you're busy.</p>
       <div id="reminder-box">${reminderHTML()}</div>
       ${installHTML()}
       <div class="actions"><button class="btn primary big" data-act="onboard-next">Next</button></div>
@@ -583,8 +621,10 @@ function reminderHTML() {
   else if (r.notify && perm === 'granted') notify = `<p class="ok">Notifications are on. <button class="link" data-act="notify-test">Send a test</button> · <button class="link" data-act="notify-off">Turn off</button></p>`;
   else notify = `<button class="btn" data-act="notify-on">${icon('bell')} Turn on notifications</button>`;
   return `
-    <label class="field inline"><span class="field-label">Morning reminder</span><input type="time" id="reminder-time" value="${r.time}"></label>
-    <label class="check"><input type="checkbox" id="reminder-evening" ${r.evening ? 'checked' : ''}><span>Evening check-in at 8pm<small>Only if you haven't done the challenge yet.</small></span></label>
+    <label class="field inline"><span class="field-label">Reminder time</span><input type="time" id="reminder-time" value="${r.time}"></label>
+    ${weekly()
+      ? '<p class="hint">On a weekly rhythm you get a nudge on Monday and a check-in on Thursday, only if you haven\'t done it yet.</p>'
+      : `<label class="check"><input type="checkbox" id="reminder-evening" ${r.evening ? 'checked' : ''}><span>Evening check-in at 8pm<small>Only if you haven't done the challenge yet.</small></span></label>`}
     <div class="reminder-ways">
       ${notify}
       <button class="btn" data-act="calendar">${icon('calendar')} Add to my calendar</button>
@@ -674,18 +714,25 @@ function syncReminder() {
   if (!d) return;
   const ch = state.byId.get(currentId(d));
   const r = state.settings.reminder;
-  const tp = plans().find(p => p.date === d.date && p.id === currentId(d));
+  const pp = todayPlan();
+  const tp = pp && pp.date === dayKey() ? pp : null;
   const planBody = tp ? [tp.where ? `At ${tp.where}.` : '', ifLine(tp)].filter(Boolean).join(' ') || 'This is the time you picked.' : '';
   const meta = { notify: r.notify, time: r.time, evening: r.evening, date: d.date, title: ch ? ch.title : '', why: ch ? ch.why : '', earned: !!d.earned,
-    plan: tp ? { time: tp.time, body: planBody } : null,
-    pace: state.settings.prefs.pace || 'daily', busyUntil: state.settings.busyUntil, lastOpen: dayKey() };
+    plan: pp ? { date: pp.date, time: pp.time, body: [pp.where ? `At ${pp.where}.` : '', ifLine(pp)].filter(Boolean).join(' ') || 'This is the time you picked.' } : null,
+    capped: fewCapped(),
+    pace: rhythm(), periodStart: d.date, busyUntil: state.settings.busyUntil, lastOpen: dayKey() };
   idbDo('readwrite', s => s.put(meta, 'reminder'), 'meta').catch(() => {});
   reminderTimers.forEach(clearTimeout);
   reminderTimers = [];
   if (!r.notify || !('Notification' in window) || Notification.permission !== 'granted' || !ch || isBusy()) return;
   const until = hhmm => { const [h, m] = hhmm.split(':').map(Number); const t = new Date(); t.setHours(h, m, 0, 0); return t - Date.now(); };
   const morning = until(r.time);
-  if (morning > 0 && !d.earned && !tp && paceDay()) reminderTimers.push(setTimeout(() => showNote("Today's challenge", ch.title, 'keepsake-morning'), morning));
+  const thursday = weekly() && new Date().getDay() === 4;
+  if (morning > 0 && !d.earned && !tp && paceDay() && !fewCapped()) {
+    reminderTimers.push(setTimeout(() => thursday
+      ? showNote(`Still up for ${ch.title} this week?`, 'No rush. Next week is fine too.', 'keepsake-morning')
+      : showNote(`${W().Cur} challenge`, ch.title, 'keepsake-morning'), morning));
+  }
   const planned = tp ? until(tp.time) : -1;
   if (planned > 0 && !d.earned) {
     reminderTimers.push(setTimeout(() => showNote(`It's time: ${ch.title}`, planBody, 'keepsake-plan'), planned));
@@ -693,7 +740,7 @@ function syncReminder() {
   // the evening check-in waits until an hour after a planned time
   const evening = tp ? Math.max(until(EVENING_TIME), planned + 60 * 60 * 1000) : until(EVENING_TIME);
   // the evening check-in is opt-in, except on days you planned something
-  if ((r.evening || tp) && evening > 0 && evening <= until('21:30')) {
+  if (((r.evening && !weekly()) || tp) && evening > 0 && evening <= until('21:30')) {
     reminderTimers.push(setTimeout(() => { if (!today().earned) showNote(`Still up for ${ch.title}?`, "Tomorrow's fine too.", 'keepsake-evening'); }, evening));
   }
 }
@@ -703,16 +750,26 @@ function calendarFile() {
   const t = new Date();
   const ymd = `${t.getFullYear()}${p2(t.getMonth() + 1)}${p2(t.getDate())}`;
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
-  const event = (id, time, summary, desc) => [
+  const rule = { daily: 'RRULE:FREQ=DAILY', few: 'RRULE:FREQ=WEEKLY;BYDAY=MO,WE,SA', weekly: 'RRULE:FREQ=WEEKLY;BYDAY=MO' }[rhythm()];
+  const firstOn = rrule => {
+    const days = (rrule.match(/BYDAY=([A-Z,]+)/) || [])[1];
+    if (!days) return ymd;
+    const want = days.split(',').map(x => ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'].indexOf(x));
+    for (let i = 0; i < 7; i++) { const x = addDays(t, i); if (want.includes(x.getDay())) return dayKey(x).replace(/-/g, ''); }
+    return ymd;
+  };
+  const event = (id, time, summary, desc, rrule = rule) => [
     'BEGIN:VEVENT', `UID:keepsake-${id}-${ymd}@keepsake`, `DTSTAMP:${stamp}`,
-    `DTSTART:${ymd}T${time.replace(':', '')}00`, 'DURATION:PT5M', 'RRULE:FREQ=DAILY',
+    `DTSTART:${firstOn(rrule)}T${time.replace(':', '')}00`, 'DURATION:PT5M', rrule,
     `SUMMARY:${summary}`, `DESCRIPTION:${desc} ${APP_URL}`, `URL:${APP_URL}`,
     'BEGIN:VALARM', 'ACTION:DISPLAY', 'TRIGGER:PT0M', `DESCRIPTION:${summary}`, 'END:VALARM', 'END:VEVENT',
   ];
   const lines = [
     'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Keepsake//Reminders//EN', 'CALSCALE:GREGORIAN',
-    ...event('morning', r.time, "Today's Keepsake challenge", "Open Keepsake to see today's challenge:"),
-    ...(r.evening ? event('evening', EVENING_TIME, 'Keepsake: did you do it?', "There's still time to do today's challenge:") : []),
+    ...event('morning', r.time, `${W().Cur} Keepsake challenge`, `Open Keepsake to see ${W().cur} challenge:`),
+    ...(weekly()
+      ? event('thursday', r.time, 'Keepsake: still up for it this week?', "No rush. Here's this week's challenge:", 'RRULE:FREQ=WEEKLY;BYDAY=TH')
+      : r.evening ? event('evening', EVENING_TIME, 'Keepsake: did you do it?', `There's still time to do ${W().cur} challenge:`) : []),
     'END:VCALENDAR',
   ];
   download(new Blob([lines.join('\r\n')], { type: 'text/calendar' }), 'keepsake-reminders.ics');
@@ -724,7 +781,7 @@ function calendarFile() {
 // makes follow-through far more likely. Plans live in settings.plans as { id, date, time, where }.
 const plans = () => state.settings.plans || (state.settings.plans = []);
 const planFor = (id, date) => plans().find(p => p.id === id && (!date || p.date === date));
-const todayPlan = () => { const d = today(); return plans().find(p => p.date === d.date && p.id === currentId(d)); };
+const todayPlan = () => { const d = today(); return plans().find(p => inPeriod(p.date) && p.id === currentId(d)); };
 const upcomingPlans = () => plans().filter(p => p.date > dayKey()).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
 function savePlans(list) { state.settings.plans = list; saveSettings(); }
 
@@ -821,11 +878,11 @@ function openPlanSheet(ch) {
   openSheet(planSheetHTML(ch), 'When and where?');
   updatePlanPreview();
 }
-// Saves a plan; a plan for today makes it today's challenge, a plan for another day frees up today.
+// Saves a plan; a plan inside the current day or week makes it the current challenge, a later one frees it up.
 function commitPlan(p) {
   const d = today();
   savePlans([...plans().filter(x => x.id !== p.id && x.date !== p.date), p]);
-  if (p.date === d.date) {
+  if (inPeriod(p.date)) {
     if (!d.earned && currentId(d) !== p.id) d.custom = p.id;
   } else if (!d.earned && currentId(d) === p.id) {
     if (d.custom === p.id) d.custom = null;
@@ -977,10 +1034,10 @@ function deckActions(ch) {
   const dare = `<button class="btn ghost big" data-act="plan" data-id="${ch.id}">${icon('calendar')} ${planFor(ch.id) ? 'Change plan' : 'Plan it'}</button>`
     + `<button class="btn ghost big" data-act="dare-friend" data-id="${ch.id}">${icon('share')} Dare a friend</button>`;
   if (card) return `<div class="actions"><button class="btn big" data-view="${card.id}">See your card</button><button class="btn ghost big" data-act="dare-friend" data-id="${ch.id}">${icon('share')} Dare a friend</button></div>`;
-  if (d.earned) return `<div class="actions">${dare}</div><p class="sheet-note">You've done today's. Come back tomorrow and swap this one in.</p>`;
-  if (currentId(d) === ch.id) return `<div class="actions"><button class="btn primary big" data-act="done" data-id="${ch.id}">I did it</button>${dare}</div><p class="sheet-note">This is today's challenge.</p>`;
-  return `<div class="actions"><button class="btn primary big" data-act="pick" data-id="${ch.id}">Do this one today</button>${dare}</div>
-    <p class="sheet-note">One card a day, so this swaps out today's challenge.</p>`;
+  if (d.earned || fewCapped()) return `<div class="actions">${dare}</div><p class="sheet-note">You've done ${fewCapped() ? 'three this week' : W().cur}. Come back ${fewCapped() ? 'on Monday' : W().next} and swap this one in.</p>`;
+  if (currentId(d) === ch.id) return `<div class="actions"><button class="btn primary big" data-act="done" data-id="${ch.id}">I did it</button>${dare}</div><p class="sheet-note">This is ${W().cur} challenge.</p>`;
+  return `<div class="actions"><button class="btn primary big" data-act="pick" data-id="${ch.id}">Do this one ${W().now}</button>${dare}</div>
+    <p class="sheet-note">${W().one}, so this swaps out ${W().cur} challenge.</p>`;
 }
 
 async function renderBook() {
@@ -993,7 +1050,7 @@ async function renderBook() {
     el.innerHTML = `${header}
       <p class="empty-book">Every challenge you do ends up here as a card, with your photo and your words.</p>
       <div class="grid"><div class="ghost-card">${icon('seal')}<span>Your first card goes here</span></div></div>
-      <div class="actions"><button class="btn" data-goto="today">See today's challenge</button></div>`;
+      <div class="actions"><button class="btn" data-goto="today">See ${W().cur} challenge</button></div>`;
     return;
   }
   const n = realCards().length;
@@ -1039,9 +1096,12 @@ function tickCountdown() {
     const el = $('#countdown');
     if (!el) { clearInterval(countdownTimer); return; }
     const now = new Date();
-    if (dayKey(now) !== state.day.date) { renderToday(); return; }
-    const mins = Math.ceil((addDays(new Date(now.getFullYear(), now.getMonth(), now.getDate()), 1) - now) / 60000);
-    el.textContent = `${Math.floor(mins / 60)}h ${mins % 60}m`;
+    if (periodKey(now) !== state.day.date) { renderToday(); return; }
+    const next = nextStart();
+    const mins = Math.ceil((next - now) / 60000);
+    el.textContent = mins > 24 * 60
+      ? `on ${next.toLocaleDateString(undefined, { weekday: 'long' })}`
+      : `in ${Math.floor(mins / 60)}h ${mins % 60}m`;
   };
   upd();
   countdownTimer = setInterval(upd, 30000);
@@ -1152,7 +1212,7 @@ async function seal() {
     daredBy: dare && dare.id === ch.id ? (dare.from || 'a friend') : null,
     planned: plans().some(x => x.id === ch.id && x.date <= today().date),
   };
-  if (card.planned) savePlans(plans().filter(x => x.id !== ch.id));
+  savePlans(plans().filter(x => x.id !== ch.id)); // done early or on time, the plan is finished either way
   if (p.blob) photoOk = await putPhoto(card.id, p.blob);
   state.cards.push(card);
   saveCards();
@@ -1731,11 +1791,11 @@ function onAction(t) {
       saveDay();
       closeDeckSheets();
       show('today');
-      toast(`Today's challenge: ${state.byId.get(t.dataset.id).title}`);
+      toast(`${W().Cur} challenge: ${state.byId.get(t.dataset.id).title}`);
       break;
     }
     case 'done':
-      if (d.earned) return;
+      if (d.earned || fewCapped()) return;
       closeDeckSheets();
       openProof(t.dataset.id, { kind: 'today', easy: isEasy(d) && currentId(d) === t.dataset.id });
       break;
@@ -1839,7 +1899,7 @@ function onAction(t) {
       else if (d.earned) {
         state.settings.pendingDare = dr;
         saveSettings();
-        toast("You've already done today's. The dare's up tomorrow.");
+        toast(`You've already done ${W().cur}. The dare's up ${W().next}.`);
       } else {
         d.custom = dr.id;
         d.dare = dr;
@@ -2013,7 +2073,11 @@ function bind() {
       updatePlanPreview();
     }
     else if (t.name === 'plan-day') updatePlanPreview();
-    else if (t.dataset.pref) { state.settings.prefs[t.dataset.pref] = t.value; saveSettings(); }
+    else if (t.dataset.pref) {
+      state.settings.prefs[t.dataset.pref] = t.value;
+      saveSettings();
+      if (t.dataset.pref === 'pace' && state.settings.onboarded) renderToday(); // a new rhythm starts a new period
+    }
     else if (t.id === 'reminder-time' && t.value) { r.time = t.value; saveSettings(); syncReminder(); }
     else if (t.id === 'reminder-evening') { r.evening = t.checked; saveSettings(); syncReminder(); }
   });
