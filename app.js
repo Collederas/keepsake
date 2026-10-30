@@ -203,11 +203,19 @@ const earnedIds = () => new Set(state.cards.map(c => c.challengeId));
 // Stats are counted on this phone only. Nothing leaves it unless the tester taps "Share my stats"
 // and sends the email themselves, after seeing the exact text. Never anything they wrote:
 // no stories, places, names, wishes or photos.
-const VERSION = '2026-10-30';
+const VERSION = '2026-10-30b';
 const FEEDBACK_EMAIL = 'collederas@gmail.com';
 const stats = Object.assign({ id: '', since: null, days: [], n: {}, swapped: {}, asks: 0, sentAt: null }, store.get('ks.stats', {}));
-if (!stats.id) { stats.id = Math.random().toString(36).slice(2, 8); stats.since = dayKey(); store.set('ks.stats', stats); }
+if (!stats.id) stats.id = Math.random().toString(36).slice(2, 8);
+if (!stats.since) stats.since = stats.days[0] || dayKey();
+store.set('ks.stats', stats);
 const saveStats = () => store.set('ks.stats', stats);
+function logError(msg) {
+  stats.errors = (stats.errors || []).concat(`${dayKey()} ${String(msg).slice(0, 120)}`).slice(-8);
+  saveStats();
+}
+window.addEventListener('error', e => logError(e.message));
+window.addEventListener('unhandledrejection', e => logError((e.reason && e.reason.message) || e.reason));
 function count(name, id) {
   stats.n[name] = (stats.n[name] || 0) + 1;
   if (id) stats.swapped[id] = (stats.swapped[id] || 0) + 1;
@@ -232,25 +240,36 @@ function statsText() {
   const cards = [...realCards()].sort((a, b) => a.no - b.no);
   const zero = state.cards.find(isZero);
   const weeks = new Set(stats.days.map(d => weekStart(new Date(d + 'T12:00')))).size;
-  const used = stats.since ? daysBetween(stats.since, dayKey()) + 1 : 0;
+  // cards made before stats existed still count as the start
+  const start = [stats.since, ...cards.map(c => dayKey(new Date(c.date)))].filter(Boolean).sort()[0] || dayKey();
+  const used = daysBetween(start, dayKey()) + 1;
   const p = state.settings.prefs;
   const r = state.settings.reminder;
   const perm = 'Notification' in window ? Notification.permission : 'unsupported';
-  const tally = obj => Object.entries(obj).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ') || 'none';
+  const tally = (obj, max = 40) => Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, max).map(([k, v]) => `${k} ${v}`).join(', ') || 'none';
   const lines = [
     `Keepsake stats · version ${VERSION} · tester ${stats.id}`,
     `Device: ${device()}`,
-    `Using it for ${used} days, opened on ${stats.days.length} of them, in ${weeks} different weeks`,
+    `Using it for ${used} day${used === 1 ? '' : 's'}, opened on ${stats.days.length} of them, in ${weeks} different week${weeks === 1 ? '' : 's'}`,
     `Settings: ${rhythm()}, ${p.social}, budget ${p.budget}, time ${p.time}`,
     `Reminders: notifications ${r.notify && perm === 'granted' ? 'on' : `off (${perm})`}${r.evening ? ', evening check-in' : ''}`,
     `Busy right now: ${isBusy() ? 'yes' : 'no'}`,
     `Day Zero: ${!zero ? (state.settings.dayZeroDone ? 'skipped' : 'not yet') : zero.pending ? 'wish written, not done yet' : 'done'}`,
+    `First card: ${cards.length ? `${daysBetween(start, dayKey(new Date(cards[0].date)))} days after first opening` : 'not yet'}`,
     `Cards: ${cards.length} · courage ${courageProgress().cap} · easy ${cards.filter(c => c.easier).length} · foil ${cards.filter(isFoil).length} · planned ${cards.filter(c => c.planned).length} · dared ${cards.filter(c => c.daredBy).length} · with photo ${cards.filter(c => c.photo).length}`,
-    `Done: ${cards.map(c => `${dayKey(new Date(c.date))} ${c.challengeId}`).join(', ') || 'nothing yet'}`,
-    `Swapped away: ${tally(stats.swapped)}`,
-    `Taps: ${tally(stats.n)}`,
+    `Errors: ${(stats.errors || []).join(' | ') || 'none'}`,
   ];
-  return lines.join('\n').slice(0, 1800);
+  // the whole email has to stay under ~1900 characters once encoded, or some mail apps drop it,
+  // so the long lists shrink until it fits
+  for (const [done, taps, swaps] of [[25, 40, 10], [12, 25, 5], [6, 15, 3], [0, 10, 0]]) {
+    const text = [
+      ...lines,
+      `Done: ${cards.slice(-done).map(c => `${dayKey(new Date(c.date))} ${c.challengeId}`).join(', ') || (cards.length ? '(too many to list)' : 'nothing yet')}`,
+      `Swapped away: ${tally(stats.swapped, swaps)}`,
+      `Taps: ${tally(stats.n, taps)}`,
+    ].join('\n');
+    if (mailto('Keepsake stats', text).length <= 1900 || !done) return text;
+  }
 }
 // asks twice: after the 2nd card and after the 6th, and steps aside once answered either way
 const statsAskDue = () => [2, 6].filter(n => realCards().length >= n).length > stats.asks;
@@ -290,18 +309,17 @@ async function saveBackup() {
     const b = await getPhoto(c.id);
     if (b) photos[c.id] = await blobToDataUrl(b);
   }
-  state.settings.lastBackup = dayKey();
-  saveSettings();
+  const done = () => { state.settings.lastBackup = dayKey(); saveSettings(); return true; };
   const data = { app: 'keepsake', backup: 1, made: new Date().toISOString(), cards: state.cards, day: state.day, settings: state.settings, stats, photos };
   const name = `keepsake-backup-${dayKey()}.json`;
   const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
   const file = new File([blob], name, { type: 'application/json' });
   count('backup');
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try { await navigator.share({ files: [file], title: 'Keepsake backup' }); return true; } catch (e) { if (e.name === 'AbortError') return false; }
+    try { await navigator.share({ files: [file], title: 'Keepsake backup' }); return done(); } catch (e) { if (e.name === 'AbortError') return false; }
   }
   download(blob, name);
-  return true;
+  return done();
 }
 async function readBackup(file) {
   try {
@@ -800,7 +818,7 @@ function makeDayZero() {
   count('day-zero');
   state.zeroOpen = false;
   if (!state.settings.onboarded) finishOnboarding(); else renderToday();
-  toast("It's card #000 in your Book. Fill it in once you've done it.");
+  toast('Saved as card #000 in your Book');
 }
 function prefsHTML() {
   return Object.entries(PREFS).map(([k, p]) => `
@@ -827,7 +845,7 @@ function reminderHTML() {
       ${notify}
       <button class="btn" data-act="calendar">${icon('calendar')} Add to my calendar</button>
     </div>
-    <p class="hint">Heads up: phones sometimes delay notifications from web apps. Calendar reminders are always on time, but they can't back off when you're busy.</p>`;
+    <p class="hint">Phones sometimes delay notifications from web apps. Calendar reminders are always on time.</p>`;
 }
 function installHTML() {
   if (isStandalone()) return '';
@@ -835,34 +853,61 @@ function installHTML() {
   if (isIOS()) return '<p class="hint install">To install: tap Share in Safari, then Add to Home Screen.</p>';
   return '';
 }
-function settingsHTML() {
+// Settings is a short list: each row shows its current value and opens just that setting
+const label = (k, v) => (PREFS[k].options.find(o => o[0] === v) || [, ''])[1];
+function settingsRows() {
+  const pr = state.settings.prefs;
+  const r = state.settings.reminder;
+  const notifOn = r.notify && 'Notification' in window && Notification.permission === 'granted';
+  const row = (page, name, value) => `<button class="set-row" data-act="set-open" data-page="${page}"><span>${name}</span><span class="set-val">${esc(value)}</span>${icon('chev')}</button>`;
   return `
-    <h2 class="proof-title">Settings</h2>
-    <h3 class="sub first">Busy?</h3>
-    ${busySettingsHTML()}
-    <h3 class="sub">You</h3>
-    <label class="field"><span class="field-label">Your first name <span class="opt">So friends know who dared them</span></span>
-      <input id="set-name" maxlength="24" value="${esc(state.settings.name)}" autocomplete="given-name"></label>
-    <h3 class="sub">Challenges</h3>
-    <button class="link" data-act="help">How courage, colours and foil work</button>
-    ${prefsHTML()}
-    <p class="hint">Kicks in from your next challenge.</p>
-    <h3 class="sub">Reminders</h3>
-    <div id="reminder-box">${reminderHTML()}</div>
-    <h3 class="sub">Your cards</h3>
-    <p class="hint">Your cards only live on this phone. ${state.settings.lastBackup ? `Last backup: ${fmtDate(state.settings.lastBackup + 'T12:00')}.` : 'No backup yet.'}</p>
-    <div class="busy-opts">
-      <button class="btn" data-act="backup">Save a backup</button>
-      <button class="btn" data-act="restore">Restore a backup</button>
+    <div class="set-group">
+      ${row('pace', 'How often', label('pace', pr.pace))}
+      ${row('fit', 'What suits you', [label('social', pr.social), label('budget', pr.budget), label('time', pr.time)].join(' · '))}
+      ${row('reminders', 'Reminders', `${fmtTime(r.time)}${notifOn ? ' · notifications' : ''}`)}
+      ${row('busy', 'Busy?', isBusy() ? busyUntilText().replace(/^until /, 'Until ') : 'Pause reminders')}
+      ${row('name', 'Your name for dares', state.settings.name || 'Not set')}
     </div>
-    <input type="file" id="restore-input" accept="application/json,.json" hidden>
-    <h3 class="sub">Testing Keepsake</h3>
-    <p class="hint">Thanks for trying it early. Anything confusing, broken or great, I want to hear it.</p>
-    <div class="busy-opts">
-      <a class="btn" href="${esc(feedbackLink())}" data-act="feedback">Send feedback</a>
-      <button class="btn" data-act="stats">Share my stats</button>
+    <h3 class="set-label">Your cards</h3>
+    <div class="set-group">
+      ${row('backup', 'Backup', state.settings.lastBackup ? fmtDate(state.settings.lastBackup + 'T12:00') : 'Never')}
+      <button class="set-row" data-act="help"><span>How courage, colours and foil work</span>${icon('chev')}</button>
     </div>
-    ${installHTML() ? `<h3 class="sub">App</h3>${installHTML()}` : ''}`;
+    <h3 class="set-label">Testing Keepsake</h3>
+    <div class="set-group">
+      <a class="set-row" href="${esc(feedbackLink())}" data-act="feedback"><span>Send feedback</span><span class="set-val">By email</span>${icon('chev')}</a>
+      <button class="set-row" data-act="stats"><span>Share my stats</span><span class="set-val">${stats.sentAt ? `Sent ${fmtDate(stats.sentAt + 'T12:00')}` : 'Not yet'}</span>${icon('chev')}</button>
+    </div>
+    ${installHTML() ? `<div class="set-install">${installHTML()}</div>` : ''}`;
+}
+function settingsHTML() {
+  return `<h2 class="proof-title">Settings</h2><div class="settings-list">${settingsRows()}</div>`;
+}
+function refreshSettings() {
+  const el = $('.settings-list');
+  if (el) el.innerHTML = settingsRows();
+}
+function settingsPage(page) {
+  const seg = k => prefsHTML().split('</fieldset>').find(f => f.includes(`data-pref="${k}"`)) + '</fieldset>';
+  const pages = {
+    pace: ['How often', `${seg('pace')}<p class="hint">Changes start from your next challenge.</p>`],
+    fit: ['What suits you', `${seg('social')}${seg('budget')}${seg('time')}<p class="hint">Changes start from your next challenge.</p>`],
+    reminders: ['Reminders', `<div id="reminder-box">${reminderHTML()}</div>`],
+    busy: ['Busy?', busySettingsHTML()],
+    backup: ['Backup', `
+      <p>Your cards only live on this phone. A backup is one file with all of them, photos included, that you can restore on any phone.</p>
+      <p class="hint">${state.settings.lastBackup ? `Last backup: ${fmtDate(state.settings.lastBackup + 'T12:00')}.` : 'No backup yet.'}</p>
+      <div class="actions">
+        <button class="btn primary big" data-act="backup">Save a backup</button>
+        <button class="btn ghost" data-act="restore">Restore a backup</button>
+      </div>
+      <input type="file" id="restore-input" accept="application/json,.json" hidden>`],
+    name: ['Your name for dares', `
+      <label class="field"><span class="field-label">Your first name <span class="opt">So friends know who dared them</span></span>
+        <input id="set-name" maxlength="24" value="${esc(state.settings.name)}" autocomplete="given-name"></label>`],
+  };
+  const [title, body] = pages[page];
+  return `<h2 class="proof-title">${title}</h2>${body}`;
 }
 function busyUntilText() {
   const b = state.settings.busyUntil;
@@ -907,6 +952,7 @@ async function showNote(title, body, tag) {
 async function notifyOn() {
   if (!('Notification' in window)) return;
   const perm = await Notification.requestPermission();
+  count(`notifications-${perm}`);
   if (perm === 'granted') {
     state.settings.reminder.notify = true;
     saveSettings();
@@ -975,7 +1021,7 @@ function calendarFile() {
   const event = (id, time, summary, desc, rrule = rule) => [
     'BEGIN:VEVENT', `UID:keepsake-${id}-${ymd}@keepsake`, `DTSTAMP:${stamp}`,
     `DTSTART:${firstOn(rrule)}T${time.replace(':', '')}00`, 'DURATION:PT5M', rrule,
-    `SUMMARY:${summary}`, `DESCRIPTION:${desc} ${APP_URL}`, `URL:${APP_URL}`,
+    `SUMMARY:${summary}`, `DESCRIPTION:${desc} ${APP_URL}?src=calendar`, `URL:${APP_URL}?src=calendar`,
     'BEGIN:VALARM', 'ACTION:DISPLAY', 'TRIGGER:PT0M', `DESCRIPTION:${summary}`, 'END:VALARM', 'END:VEVENT',
   ];
   const lines = [
@@ -1132,7 +1178,7 @@ function planCalendarFile(p) {
     'BEGIN:VEVENT', `UID:keepsake-plan-${p.id}-${p.date}@keepsake`, `DTSTAMP:${stamp}`,
     `DTSTART:${p.date.replace(/-/g, '')}T${p.time.replace(':', '')}00`, `DURATION:PT${Math.max(15, Math.min(ch.minutes, 240))}M`,
     `SUMMARY:${icsText(`Keepsake: ${ch.title}`)}`, ...(p.where ? [`LOCATION:${icsText(p.where)}`] : []),
-    `DESCRIPTION:${icsText(`${ch.prompt} When you've done it, add it in Keepsake:`)} ${APP_URL}`, `URL:${APP_URL}`,
+    `DESCRIPTION:${icsText(`${ch.prompt} When you've done it, add it in Keepsake:`)} ${APP_URL}?src=plan`, `URL:${APP_URL}?src=plan`,
     'BEGIN:VALARM', 'ACTION:DISPLAY', 'TRIGGER:-PT15M', `DESCRIPTION:${icsText(ch.title)}`, 'END:VALARM',
     'END:VEVENT', 'END:VCALENDAR',
   ];
@@ -1315,7 +1361,6 @@ function show(name) {
     if (on) t.setAttribute('aria-current', 'page'); else t.removeAttribute('aria-current');
   });
   ({ today: renderToday, deck: renderDeck, book: renderBook })[name]();
-  if (name !== 'today') count(`open-${name}`);
   updateDeckBadge();
   window.scrollTo(0, 0);
 }
@@ -1365,6 +1410,7 @@ const closeDeckSheets = () => document.querySelectorAll('.deck-sheet').forEach(s
 /* ================= proof flow ================= */
 async function openProof(challengeId, { kind = 'today', edit = null, easy = false } = {}) {
   const ch = state.byId.get(challengeId);
+  if (!edit) count('proof-opened');
   state.pending = { challengeId, kind, edit, easy, blob: null, keepPhoto: !!(edit && edit.photo), previewUrl: null, ownUrl: false, opener: document.activeElement };
   if (edit && edit.photo) state.pending.previewUrl = await photoUrl(edit);
   const wish = kind === 'zero' && state.cards.find(isWish);
@@ -2187,6 +2233,12 @@ function onAction(t) {
     case 'feedback':
       count('feedback');
       break;
+    case 'set-open': {
+      const sh = openSheet(settingsPage(t.dataset.page), 'Settings', { over: true });
+      const close = sh.close;
+      sh.close = () => { close(); refreshSettings(); };
+      break;
+    }
     case 'stats':
       openSheet(statsSheetHTML(), 'Share my stats', { over: true });
       break;
@@ -2225,6 +2277,7 @@ function onAction(t) {
       break;
     case 'onboard-next':
       state.onboardStep++;
+      count(`setup-step-${state.onboardStep}`);
       renderToday();
       window.scrollTo(0, 0);
       break;
@@ -2257,6 +2310,7 @@ function onAction(t) {
       const dr = state.incomingDare;
       state.incomingDare = null;
       if (!dr) return;
+      count('dare-taken');
       const ch = state.byId.get(dr.id);
       if (earnedIds().has(dr.id)) toast(`You've already earned ${ch.title}`);
       else if (d.earned) {
@@ -2383,7 +2437,7 @@ function bind() {
   document.addEventListener('click', e => {
     const t = e.target.closest('[data-act],[data-goto],[data-filter],[data-open],[data-locked],[data-view],.tab');
     if (!t) return;
-    if (t.classList.contains('tab')) return show(t.dataset.screen);
+    if (t.classList.contains('tab')) { count(`tab-${t.dataset.screen}`); return show(t.dataset.screen); }
     if (t.dataset.goto) return show(t.dataset.goto);
     if (t.dataset.filter) {
       state.deckFilter = t.dataset.filter;
@@ -2398,6 +2452,7 @@ function bind() {
         updateDeckBadge();
         if ($('#deck-list')) renderDeckList();
       }
+      count('deck-challenge-opened');
       return openSheet((ch.secret ? '<p class="secret-tag">Secret challenge</p>' : '') + questHTML(ch) + deckActions(ch), ch.title);
     }
     if (t.dataset.locked) {
@@ -2456,6 +2511,7 @@ function bind() {
     else if (t.name === 'plan-day') updatePlanPreview();
     else if (t.dataset.pref) {
       state.settings.prefs[t.dataset.pref] = t.value;
+      if (state.settings.onboarded) count(`changed-${t.dataset.pref}-to-${t.value}`);
       saveSettings();
       if (t.dataset.pref === 'pace' && state.settings.onboarded) renderToday(); // a new rhythm starts a new period
     }
@@ -2551,6 +2607,9 @@ async function boot() {
 
   // dare links look like ?dare=<challenge id>&from=<first name>
   const qs = new URLSearchParams(location.search);
+  const src = qs.get('src');
+  if (['reminder', 'calendar', 'plan'].includes(src)) count(`opened-from-${src}`);
+  if (qs.get('dare')) count('dare-link-opened');
   const dareId = qs.get('dare');
   if (dareId && state.challenges.some(c => c.id === dareId)) state.incomingDare = { id: dareId, from: (qs.get('from') || '').trim().slice(0, 24) };
   if (location.search) history.replaceState(null, '', location.pathname);
@@ -2573,7 +2632,11 @@ async function boot() {
     if (inbox) await idbDo('readwrite', st => st.delete('inbox'), 'meta');
   } catch (e) { /* no IndexedDB */ }
 
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+    // a reminder tapped while the app was already open
+    navigator.serviceWorker.addEventListener('message', e => { if (e.data && e.data.src === 'reminder') count('opened-from-reminder'); });
+  }
   window.addEventListener('beforeinstallprompt', e => {
     e.preventDefault();
     state.installPrompt = e;
