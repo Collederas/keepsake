@@ -170,11 +170,11 @@ const earnedIds = () => new Set(state.cards.map(c => c.challengeId));
 function unlockInfo(ch) {
   const u = ch.unlock;
   if (!ch.secret || !u) return { unlocked: true };
-  const result = (have, need, hint) => ({ unlocked: have >= need, have: Math.min(have, need), need, hint });
+  const result = (have, need, task) => ({ unlocked: have >= need, have: Math.min(have, need), need, hint: `${task} to unlock` });
   if (u.after) {
     const done = earnedIds();
     const names = u.after.map(id => `“${(state.byId.get(id) || {}).title}”`).join(' and ');
-    return result(u.after.filter(id => done.has(id)).length, u.after.length, `Hidden behind ${names}`);
+    return result(u.after.filter(id => done.has(id)).length, u.after.length, `Complete ${names}`);
   }
   if (u.category) {
     const n = state.cards.filter(c => (state.byId.get(c.challengeId) || {}).category === u.category).length;
