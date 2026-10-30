@@ -20,6 +20,17 @@ const CATS = {
 };
 const COST = { free: 'Free', '$': 'Small spend', '$$': 'Treat yourself' };
 const MAX_REROLLS = 2;
+const EVENING_TIME = '20:00';
+const APP_URL = location.origin + location.pathname;
+const SANS = '"Atkinson Hyperlegible Next", "Atkinson Hyperlegible", sans-serif';
+const PREFS = {
+  social: { label: 'Solo or with people?', options: [['solo', 'Mostly solo'], ['any', 'Either'], ['social', 'Bring on people']] },
+  budget: { label: 'Budget', options: [['free', 'Free only'], ['some', 'A little'], ['any', 'Whatever it takes']] },
+  time:   { label: 'Time on a normal day', options: [['short', 'Under 30 min'], ['hour', 'About an hour'], ['any', 'Hours, sometimes']] },
+};
+// courage grows by doing: three cards at your current level unlock the next one
+const START_COURAGE = 2;
+const CARDS_PER_LEVEL = 3;
 
 /* ================= helpers ================= */
 const $ = (s, el = document) => el.querySelector(s);
@@ -63,8 +74,12 @@ function db() {
   if (!dbPromise) {
     dbPromise = new Promise((res, rej) => {
       try {
-        const r = indexedDB.open('keepsake', 1);
-        r.onupgradeneeded = () => r.result.createObjectStore('photos');
+        const r = indexedDB.open('keepsake', 2);
+        r.onupgradeneeded = () => {
+          const names = r.result.objectStoreNames;
+          if (!names.contains('photos')) r.result.createObjectStore('photos');
+          if (!names.contains('meta')) r.result.createObjectStore('meta');
+        };
         r.onsuccess = () => res(r.result);
         r.onerror = () => rej(r.error);
       } catch (e) { rej(e); }
@@ -72,11 +87,11 @@ function db() {
   }
   return dbPromise;
 }
-async function idbDo(mode, fn) {
+async function idbDo(mode, fn, storeName = 'photos') {
   const d = await db();
   return new Promise((res, rej) => {
-    const tx = d.transaction('photos', mode);
-    const req = fn(tx.objectStore('photos'));
+    const tx = d.transaction(storeName, mode);
+    const req = fn(tx.objectStore(storeName));
     tx.oncomplete = () => res(req && req.result);
     tx.onerror = () => rej(tx.error);
   });
@@ -131,7 +146,14 @@ const state = {
   byId: new Map(),
   cards: store.get('ks.cards', []),
   day: store.get('ks.day', null),
-  settings: Object.assign({ sound: true, introDismissed: false }, store.get('ks.settings', {})),
+  settings: Object.assign({
+    sound: true, name: '', onboarded: false, pendingDare: null,
+    prefs: { social: 'any', budget: 'any', time: 'any' },
+    reminder: { time: '09:00', evening: true, notify: false },
+  }, store.get('ks.settings', {})),
+  onboardStep: 0,
+  incomingDare: null,   // { id, from } from a dare link
+  installPrompt: null,
   deckFilter: 'all',
   deckQuery: '',
   pending: null,   // proof sheet in progress
@@ -151,16 +173,52 @@ function today() {
     // a challenge finished after midnight can still be sealed the next day
     const prev = old && old.date === dayKey(addDays(new Date(), -1)) && !old.earned ? { id: currentId(old) } : null;
     state.day = { date: key, shown: [], idx: 0, custom: null, earned: null, prev };
+    // a dare accepted after today's card was sealed becomes the next day's challenge
+    const pd = state.settings.pendingDare;
+    if (pd) {
+      if (state.byId.has(pd.id) && !earnedIds().has(pd.id)) { state.day.custom = pd.id; state.day.dare = pd; }
+      state.settings.pendingDare = null;
+      saveSettings();
+    }
     state.day.shown.push(nextPick());
     saveDay();
   }
   return state.day;
 }
+function courageProgress() {
+  let cap = START_COURAGE, count = 0;
+  for (const c of [...state.cards].sort((a, b) => a.no - b.no)) {
+    const ch = state.byId.get(c.challengeId);
+    if (!ch || c.easier || cap >= 5 || ch.courage < cap) continue;
+    if (++count >= CARDS_PER_LEVEL) { cap++; count = 0; }
+  }
+  return { cap, count, need: CARDS_PER_LEVEL };
+}
+function fitsPrefs(c) {
+  const p = state.settings.prefs;
+  if (p.social === 'solo' && !c.solo) return false;
+  if (p.budget === 'free' && c.cost !== 'free') return false;
+  if (p.budget === 'some' && c.cost === '$$') return false;
+  if (p.time === 'short' && c.minutes > 30) return false;
+  if (p.time === 'hour' && c.minutes > 90) return false;
+  return true;
+}
 function nextPick() {
   const d = state.day;
   const done = earnedIds();
   const skip = id => d.shown.includes(id) || (d.prev && d.prev.id === id);
-  let pool = state.challenges.filter(c => !done.has(c.id) && !skip(c.id));
+  const { cap } = courageProgress();
+  const fresh = state.challenges.filter(c => !done.has(c.id) && !skip(c.id));
+  // the first pool that still has something in it: fits your life and sits at the edge of your courage
+  const tiers = [
+    c => fitsPrefs(c) && c.courage === cap,
+    c => fitsPrefs(c) && c.courage <= cap && c.courage >= cap - 1,
+    c => fitsPrefs(c) && c.courage <= cap,
+    c => c.courage <= cap,
+    () => true,
+  ];
+  let pool = [];
+  for (const t of tiers) { pool = fresh.filter(t); if (pool.length) break; }
   if (!pool.length) pool = state.challenges.filter(c => !skip(c.id));
   if (!pool.length) pool = state.challenges;
   pool.sort((a, b) => hash(d.date + a.id) - hash(d.date + b.id));
@@ -276,18 +334,23 @@ function renderToday() {
   const header = `
     <header class="topbar">
       <h1 class="logo">Keep<b>sake</b></h1>
-      <span class="topbar-meta">${new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</span>
+      <span class="topbar-right">
+        <span class="topbar-meta">${new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</span>
+        <button class="icon-btn" data-act="settings" aria-label="Settings">${icon('gear')}</button>
+      </span>
     </header>`;
-  const intro = !state.cards.length && !state.settings.introDismissed ? `
-    <aside class="notice" aria-label="How Keepsake works">
-      <div><strong>How it works</strong>
-        <ul class="how">
-          <li>Do today's challenge out in the real world.</li>
-          <li>Come back with a photo or a line about it.</li>
-          <li>It becomes a card in your Book. One a day.</li>
-        </ul>
+  if (!state.settings.onboarded) {
+    el.innerHTML = header + onboardingHTML();
+    return;
+  }
+  const dare = state.incomingDare && state.byId.get(state.incomingDare.id);
+  const dareNote = dare ? `
+    <aside class="notice dare">
+      <div><strong>${esc(state.incomingDare.from || 'A friend')} dared you: ${esc(dare.title)}</strong>
+        <span class="notice-sub">${esc(dare.prompt)}</span>
+        <button class="btn primary" data-act="take-dare">Take the dare</button>
       </div>
-      <button class="icon-btn" data-act="dismiss-intro" aria-label="Dismiss">${icon('close')}</button>
+      <button class="icon-btn" data-act="dismiss-dare" aria-label="Not now">${icon('close')}</button>
     </aside>` : '';
   const prevCh = d.prev && state.byId.get(d.prev.id);
   const prevNote = prevCh ? `
@@ -300,7 +363,7 @@ function renderToday() {
 
   const earned = d.earned && state.cards.find(c => c.id === d.earned);
   if (earned) {
-    el.innerHTML = `${header}${prevNote}
+    el.innerHTML = `${header}${dareNote}${prevNote}
       <div class="done-today">
         <div class="mini-slot"></div>
         <h2>See you tomorrow.</h2>
@@ -311,8 +374,206 @@ function renderToday() {
     tickCountdown();
   } else {
     const ch = currentChallenge();
-    el.innerHTML = `${header}${intro}${prevNote}${questHTML(ch)}${todayActions(ch)}`;
+    const daredBy = d.dare && d.dare.id === ch.id ? `<p class="dared-by">Dared by ${esc(d.dare.from || 'a friend')}</p>` : '';
+    el.innerHTML = `${header}${dareNote}${prevNote}${courageHTML()}${daredBy}${questHTML(ch)}${todayActions(ch)}`;
   }
+  syncReminder();
+}
+function courageText() {
+  const { cap, count, need } = courageProgress();
+  return cap >= 5
+    ? 'Courage level 5 · every challenge is open to you'
+    : `Courage level ${cap} · ${need - count} more level-${cap} challenge${need - count === 1 ? '' : 's'} to reach level ${cap + 1}`;
+}
+function courageHTML() {
+  const { cap, count, need } = courageProgress();
+  return `<div class="level"><span>${courageText()}</span><span class="bar" aria-hidden="true"><i style="width:${cap >= 5 ? 100 : (count / need) * 100}%"></i></span></div>`;
+}
+
+/* ================= onboarding + settings ================= */
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+
+function onboardingHTML() {
+  const step = state.onboardStep;
+  if (step === 0) return `
+    <section class="onboard">
+      <h2>One real-life challenge a day.</h2>
+      <ul class="how">
+        <li>Do the day's challenge out in the real world.</li>
+        <li>Come back with a photo or a line about it.</li>
+        <li>It becomes a card in your Book.</li>
+      </ul>
+      <p>Three quick questions, so your first challenges fit your life. You'll start gentle and unlock bolder ones as you go.</p>
+      <div class="actions">
+        <button class="btn primary big" data-act="onboard-next">Set it up</button>
+        <button class="btn ghost" data-act="onboard-done">Skip, show me a challenge</button>
+      </div>
+    </section>`;
+  if (step === 1) return `
+    <section class="onboard">
+      <h2>What fits your days?</h2>
+      ${prefsHTML()}
+      <div class="actions"><button class="btn primary big" data-act="onboard-next">Next</button></div>
+    </section>`;
+  return `
+    <section class="onboard">
+      <h2>Want a nudge?</h2>
+      <p>A morning reminder with the day's challenge, and an evening check-in if you haven't sealed it yet.</p>
+      <div id="reminder-box">${reminderHTML()}</div>
+      ${installHTML()}
+      <div class="actions"><button class="btn primary big" data-act="onboard-done">Show me today's challenge</button></div>
+    </section>`;
+}
+function prefsHTML() {
+  return Object.entries(PREFS).map(([k, p]) => `
+    <fieldset class="seg"><legend>${p.label}</legend>
+      <div>${p.options.map(([v, l]) => `<label><input type="radio" name="pref-${k}" value="${v}" data-pref="${k}" ${state.settings.prefs[k] === v ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>
+    </fieldset>`).join('');
+}
+function reminderHTML() {
+  const r = state.settings.reminder;
+  const perm = 'Notification' in window ? Notification.permission : 'unsupported';
+  const iosNeedsInstall = isIOS() && !isStandalone();
+  let notify;
+  if (iosNeedsInstall) notify = '<p class="hint">On iPhone, notifications work once Keepsake is on your Home Screen: tap Share, then Add to Home Screen. The calendar works right away.</p>';
+  else if (perm === 'unsupported') notify = '<p class="hint">This browser can\'t show notifications. The calendar works everywhere.</p>';
+  else if (perm === 'denied') notify = '<p class="hint">Notifications are blocked for this site. Allow them in your browser settings, or use the calendar.</p>';
+  else if (r.notify && perm === 'granted') notify = `<p class="ok">Notifications are on. <button class="link" data-act="notify-test">Send a test</button> · <button class="link" data-act="notify-off">Turn off</button></p>`;
+  else notify = `<button class="btn" data-act="notify-on">${icon('bell')} Turn on notifications</button>`;
+  return `
+    <label class="field inline"><span class="field-label">Morning reminder</span><input type="time" id="reminder-time" value="${r.time}"></label>
+    <label class="check"><input type="checkbox" id="reminder-evening" ${r.evening ? 'checked' : ''}><span>Evening check-in at 8pm<small>Only on days you haven't sealed a card.</small></span></label>
+    <div class="reminder-ways">
+      ${notify}
+      <button class="btn" data-act="calendar">${icon('calendar')} Add to my calendar</button>
+    </div>
+    <p class="hint">Phones decide when web apps may notify, so notifications can arrive late. The calendar reminder is always on time.</p>`;
+}
+function installHTML() {
+  if (isStandalone()) return '';
+  if (state.installPrompt) return `<div class="install"><button class="btn" data-act="install">${icon('share')} Install Keepsake</button></div>`;
+  if (isIOS()) return '<p class="hint install">To install: tap Share in Safari, then Add to Home Screen.</p>';
+  return '';
+}
+function settingsHTML() {
+  return `
+    <h2 class="proof-title">Settings</h2>
+    <label class="field"><span class="field-label">Your first name <span class="opt">Shown on dares you send</span></span>
+      <input id="set-name" maxlength="24" value="${esc(state.settings.name)}" autocomplete="given-name"></label>
+    <h3 class="sub">Challenges</h3>
+    ${prefsHTML()}
+    <p class="hint">Applies from your next new challenge. ${courageText()}.</p>
+    <h3 class="sub">Reminders</h3>
+    <div id="reminder-box">${reminderHTML()}</div>
+    ${installHTML() ? `<h3 class="sub">App</h3>${installHTML()}` : ''}`;
+}
+function refreshReminderUI() {
+  const box = $('#reminder-box');
+  if (box) box.innerHTML = reminderHTML();
+}
+function finishOnboarding() {
+  state.settings.onboarded = true;
+  saveSettings();
+  // re-pick today's challenge with the answers, unless the user already chose one
+  const d = today();
+  if (!d.earned && !d.custom) { d.shown = []; d.idx = 0; d.shown.push(nextPick()); saveDay(); }
+  renderToday();
+  window.scrollTo(0, 0);
+}
+
+/* ================= reminders ================= */
+async function swReg() {
+  if (!('serviceWorker' in navigator)) return null;
+  return Promise.race([navigator.serviceWorker.ready, sleep(3000).then(() => null)]);
+}
+async function showNote(title, body, tag) {
+  const opts = { body, tag, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png' };
+  const reg = await swReg();
+  if (reg) return reg.showNotification(title, opts);
+  try { new Notification(title, opts); } catch (e) { /* not allowed outside a worker */ }
+}
+async function notifyOn() {
+  if (!('Notification' in window)) return;
+  const perm = await Notification.requestPermission();
+  if (perm === 'granted') {
+    state.settings.reminder.notify = true;
+    saveSettings();
+    const reg = await swReg();
+    if (reg && 'periodicSync' in reg) {
+      try { await reg.periodicSync.register('keepsake-reminder', { minInterval: 60 * 60 * 1000 }); } catch (e) { /* not installed, or not allowed */ }
+    }
+    syncReminder();
+    toast('Notifications on');
+  } else {
+    toast("Notifications weren't allowed");
+  }
+  refreshReminderUI();
+}
+let reminderTimers = [];
+// Writes what the service worker needs, and schedules reminders while the app stays open.
+function syncReminder() {
+  const d = state.day;
+  if (!d) return;
+  const ch = state.byId.get(currentId(d));
+  const r = state.settings.reminder;
+  const meta = { notify: r.notify, time: r.time, evening: r.evening, date: d.date, title: ch ? ch.title : '', earned: !!d.earned };
+  idbDo('readwrite', s => s.put(meta, 'reminder'), 'meta').catch(() => {});
+  reminderTimers.forEach(clearTimeout);
+  reminderTimers = [];
+  if (!r.notify || !('Notification' in window) || Notification.permission !== 'granted' || !ch) return;
+  const until = hhmm => { const [h, m] = hhmm.split(':').map(Number); const t = new Date(); t.setHours(h, m, 0, 0); return t - Date.now(); };
+  const morning = until(r.time);
+  if (morning > 0 && !d.earned) reminderTimers.push(setTimeout(() => showNote("Today's challenge", ch.title, 'keepsake-morning'), morning));
+  const evening = until(EVENING_TIME);
+  if (r.evening && evening > 0) {
+    reminderTimers.push(setTimeout(() => { if (!today().earned) showNote('Did you do it?', `Seal ${ch.title} in your Book before midnight.`, 'keepsake-evening'); }, evening));
+  }
+}
+function calendarFile() {
+  const r = state.settings.reminder;
+  const p2 = n => String(n).padStart(2, '0');
+  const t = new Date();
+  const ymd = `${t.getFullYear()}${p2(t.getMonth() + 1)}${p2(t.getDate())}`;
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+  const event = (id, time, summary, desc) => [
+    'BEGIN:VEVENT', `UID:keepsake-${id}-${ymd}@keepsake`, `DTSTAMP:${stamp}`,
+    `DTSTART:${ymd}T${time.replace(':', '')}00`, 'DURATION:PT5M', 'RRULE:FREQ=DAILY',
+    `SUMMARY:${summary}`, `DESCRIPTION:${desc} ${APP_URL}`, `URL:${APP_URL}`,
+    'BEGIN:VALARM', 'ACTION:DISPLAY', 'TRIGGER:PT0M', `DESCRIPTION:${summary}`, 'END:VALARM', 'END:VEVENT',
+  ];
+  const lines = [
+    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Keepsake//Reminders//EN', 'CALSCALE:GREGORIAN',
+    ...event('morning', r.time, "Today's Keepsake challenge", "Open Keepsake to see today's challenge:"),
+    ...(r.evening ? event('evening', EVENING_TIME, 'Keepsake: did you do it?', "Seal today's card before midnight:") : []),
+    'END:VCALENDAR',
+  ];
+  download(new Blob([lines.join('\r\n')], { type: 'text/calendar' }), 'keepsake-reminders.ics');
+  toast('Open the file to add the reminders to your calendar');
+}
+
+/* ================= dares + sharing ================= */
+const dareLink = id => `${APP_URL}?dare=${encodeURIComponent(id)}${state.settings.name ? `&from=${encodeURIComponent(state.settings.name)}` : ''}`;
+async function copyText(text, done) {
+  try { await navigator.clipboard.writeText(text); toast(done); } catch (e) { window.prompt('Copy this link:', text); }
+}
+async function shareDare(ch, card) {
+  const link = dareLink(ch.id);
+  const text = card ? `I did "${ch.title}" on Keepsake. Your turn:` : `I dare you: ${ch.title}.`;
+  try {
+    if (navigator.share) { await navigator.share({ title: 'Keepsake', text, url: link }); return; }
+  } catch (e) { if (e && e.name === 'AbortError') return; }
+  copyText(`${text} ${link}`, 'Dare link copied');
+}
+function openShareSheet(card) {
+  openSheet(`
+    <h2 class="proof-title">Share card #${pad(card.no)}</h2>
+    <div class="share-list">
+      <button class="btn primary big" data-act="share-story" data-id="${card.id}">${icon('share')} Share to Stories</button>
+      <button class="btn big" data-act="share-dare" data-id="${card.id}">Dare a friend to do it too</button>
+      <button class="btn big ghost" data-act="save-img" data-id="${card.id}">Save the card image</button>
+    </div>
+    <p class="sheet-note">Stories get a tall image of your card. A dare sends a link that opens this challenge for your friend.</p>`, 'Share', { over: true });
 }
 async function fillTodayCard(el, card) {
   const slot = $('.mini-slot', el);
@@ -361,10 +622,11 @@ function renderDeckList() {
 function deckActions(ch) {
   const d = today();
   const card = state.cards.find(c => c.challengeId === ch.id);
-  if (card) return `<div class="actions"><button class="btn big" data-view="${card.id}">See your card</button></div>`;
-  if (d.earned) return `<p class="sheet-note">You've sealed today's card. Come back tomorrow and swap this one in.</p>`;
-  if (currentId(d) === ch.id) return `<div class="actions"><button class="btn primary big" data-act="done" data-id="${ch.id}">I did it</button></div><p class="sheet-note">This is today's challenge.</p>`;
-  return `<div class="actions"><button class="btn primary big" data-act="pick" data-id="${ch.id}">Make this today's challenge</button></div>
+  const dare = `<button class="btn ghost big" data-act="dare-friend" data-id="${ch.id}">${icon('share')} Dare a friend</button>`;
+  if (card) return `<div class="actions"><button class="btn big" data-view="${card.id}">See your card</button>${dare}</div>`;
+  if (d.earned) return `<div class="actions">${dare}</div><p class="sheet-note">You've sealed today's card. Come back tomorrow and swap this one in.</p>`;
+  if (currentId(d) === ch.id) return `<div class="actions"><button class="btn primary big" data-act="done" data-id="${ch.id}">I did it</button>${dare}</div><p class="sheet-note">This is today's challenge.</p>`;
+  return `<div class="actions"><button class="btn primary big" data-act="pick" data-id="${ch.id}">Make this today's challenge</button>${dare}</div>
     <p class="sheet-note">You get one card a day. This replaces today's challenge.</p>`;
 }
 
@@ -383,6 +645,7 @@ async function renderBook() {
   }
   const parts = [`${cards.length} card${cards.length === 1 ? '' : 's'}`];
   for (let r = 5; r >= 1; r--) if (counts[r]) parts.push(`<b style="--rc:${RARITY[r].color}">${counts[r]} ${RARITY[r].name}</b>`);
+  parts.push(`courage level ${courageProgress().cap}`);
   const done = earnedIds();
   const urls = await Promise.all(cards.map(photoUrl));
   el.innerHTML = `${header}
@@ -439,10 +702,10 @@ function toast(msg) {
 const announce = msg => { $('#sr-live').textContent = msg; };
 
 /* ================= sheets ================= */
-function openSheet(html, label) {
+function openSheet(html, label, { over = false } = {}) {
   const opener = document.activeElement;
   const sh = document.createElement('div');
-  sh.className = 'sheet deck-sheet';
+  sh.className = `sheet deck-sheet${over ? ' over' : ''}`;
   sh.innerHTML = `<div class="sheet-panel" role="dialog" aria-modal="true" aria-label="${esc(label)}"><button class="icon-btn sheet-close" data-close aria-label="Close">${icon('close')}</button>${html}</div>`;
   sh.close = () => { sh.remove(); if (opener && opener.isConnected) opener.focus(); };
   sh.addEventListener('click', e => { if (e.target === sh || e.target.closest('[data-close]')) sh.close(); });
@@ -517,6 +780,8 @@ async function seal() {
   }
 
   const easier = $('#easier-input').checked && ch.courage > 1;
+  const dare = today().dare;
+  const capBefore = courageProgress().cap;
   const card = {
     id: uid(),
     no: state.cards.reduce((m, c) => Math.max(m, c.no), 0) + 1,
@@ -528,6 +793,7 @@ async function seal() {
     date: new Date().toISOString(),
     photo: !!p.blob,
     revealed: false,
+    daredBy: dare && dare.id === ch.id ? (dare.from || 'a friend') : null,
   };
   if (p.blob) photoOk = await putPhoto(card.id, p.blob);
   state.cards.push(card);
@@ -539,7 +805,8 @@ async function seal() {
   const kind = p.kind;
   closeProof();
   if (!photoOk) toast("This browser couldn't store the photo. It will disappear after a reload.");
-  startReveal(card, { from: kind });
+  const capAfter = courageProgress().cap;
+  startReveal(card, { from: kind, levelUp: capAfter > capBefore ? capAfter : 0 });
 }
 
 /* ================= audio ================= */
@@ -716,7 +983,7 @@ function syncSoundBtn() {
   b.innerHTML = icon(state.settings.sound ? 'sound' : 'mute');
 }
 
-async function startReveal(card, { from = 'book' } = {}) {
+async function startReveal(card, { from = 'book', levelUp = 0 } = {}) {
   const url = await photoUrl(card);
   stage.open();
   const slot = $('#stage-card-slot');
@@ -727,7 +994,7 @@ async function startReveal(card, { from = 'book' } = {}) {
   const hint = $('#stage-hint');
   hint.textContent = 'Tap the card to reveal it';
   hint.classList.add('pulse');
-  run = { card, el, url, from, started: false, startedAt: 0, done: false };
+  run = { card, el, url, from, levelUp, started: false, startedAt: 0, done: false };
   const myRun = run;
   el.addEventListener('click', () => reveal(myRun), { once: true });
   el.focus();
@@ -816,7 +1083,12 @@ function finishReveal(rn) {
   card.revealed = true;
   saveCards();
   const ch = state.byId.get(card.challengeId);
-  announce(`${rc.name} card revealed: ${ch.title}. It's in your Book.`);
+  announce(`${rc.name} card revealed: ${ch.title}. It's in your Book.${rn.levelUp ? ` Courage level ${rn.levelUp} unlocked.` : ''}`);
+  if (rn.levelUp) {
+    const hint = $('#stage-hint');
+    hint.textContent = `Courage level ${rn.levelUp} unlocked. Bolder challenges ahead.`;
+    hint.classList.add('levelup');
+  }
 
   setTimeout(() => {
     if (run !== rn) return;
@@ -825,7 +1097,7 @@ function finishReveal(rn) {
     attachTilt(slot.firstElementChild);
     const actions = $('#stage-actions');
     actions.innerHTML = `
-      <button class="btn" data-act="save-img" data-id="${card.id}">Save image</button>
+      <button class="btn" data-act="share" data-id="${card.id}">${icon('share')} Share</button>
       <button class="btn primary" data-act="reveal-done">Done</button>`;
     actions.classList.add('show');
     $('[data-act="reveal-done"]', actions).focus();
@@ -843,7 +1115,7 @@ async function openViewer(card) {
   actions.innerHTML = `
     <button class="btn ghost danger" data-act="delete" data-id="${card.id}">Delete</button>
     <button class="btn" data-act="edit" data-id="${card.id}">Edit words</button>
-    <button class="btn" data-act="save-img" data-id="${card.id}">Save image</button>
+    <button class="btn" data-act="share" data-id="${card.id}">${icon('share')} Share</button>
     <button class="btn primary" data-act="close-stage">Close</button>`;
   actions.classList.add('show');
   $('[data-act="close-stage"]', actions).focus();
@@ -906,7 +1178,6 @@ async function renderCardCanvas(card) {
   const x = c.getContext('2d');
   const ch = state.byId.get(card.challengeId);
   const r = RARITY[card.rarity];
-  const sans = '"Atkinson Hyperlegible Next", "Atkinson Hyperlegible", sans-serif';
 
   const g = x.createLinearGradient(0, 0, W, H);
   g.addColorStop(0, r.light); g.addColorStop(0.4, r.color); g.addColorStop(1, r.dark);
@@ -914,7 +1185,7 @@ async function renderCardCanvas(card) {
   roundRect(x, 28, 28, W - 56, H - 56, 34); x.fillStyle = '#171310'; x.fill();
 
   x.textBaseline = 'alphabetic';
-  x.font = `700 30px ${sans}`;
+  x.font = `700 30px ${SANS}`;
   x.fillStyle = '#d2c9bd';
   x.textAlign = 'left';
   x.fillText(CATS[ch.category].label.toUpperCase(), 64, 92);
@@ -963,7 +1234,7 @@ async function renderCardCanvas(card) {
 
   x.fillStyle = 'rgba(255,255,255,0.08)';
   x.fillRect(64, H - 128, W - 128, 2);
-  x.font = `700 30px ${sans}`;
+  x.font = `700 30px ${SANS}`;
   x.fillStyle = r.color;
   x.fillText(`${'★'.repeat(card.rarity)}  ${r.name.toUpperCase()}`, 64, H - 72);
   x.textAlign = 'right';
@@ -972,17 +1243,64 @@ async function renderCardCanvas(card) {
   x.fillText(`${fmtDate(card.date)}${card.place ? ' · ' + card.place : ''}`, W - 64, H - 72);
   return c;
 }
-async function saveCardImage(card) {
-  const c = await renderCardCanvas(card);
-  const blob = await new Promise(r => c.toBlob(r, 'image/png'));
-  const name = `keepsake-${pad(card.no)}.png`;
-  try {
-    const file = new File([blob], name, { type: 'image/png' });
-    if (navigator.canShare && navigator.canShare({ files: [file] }) && matchMedia('(pointer: coarse)').matches) {
-      await navigator.share({ files: [file], title: 'My Keepsake card' });
-      return;
-    }
-  } catch (e) { if (e && e.name === 'AbortError') return; }
+// A tall 1080x1920 image for Instagram and TikTok Stories: the card over its own blurred photo.
+async function renderStoryCanvas(card) {
+  const W = 1080, H = 1920;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const x = c.getContext('2d');
+  const r = RARITY[card.rarity];
+  const cardCanvas = await renderCardCanvas(card);
+  const url = await photoUrl(card);
+  x.fillStyle = '#110f0d';
+  x.fillRect(0, 0, W, H);
+  if (url) {
+    // blur by drawing the photo tiny and scaling it back up; works in every browser
+    const img = await loadImg(url);
+    const t = document.createElement('canvas');
+    t.width = 27; t.height = 48;
+    const s = Math.max(t.width / img.naturalWidth, t.height / img.naturalHeight);
+    t.getContext('2d').drawImage(img, (t.width - img.naturalWidth * s) / 2, (t.height - img.naturalHeight * s) / 2, img.naturalWidth * s, img.naturalHeight * s);
+    x.imageSmoothingEnabled = true;
+    x.imageSmoothingQuality = 'high';
+    x.drawImage(t, 0, 0, W, H);
+    x.fillStyle = 'rgba(17, 15, 13, 0.55)';
+    x.fillRect(0, 0, W, H);
+  } else {
+    const g = x.createRadialGradient(W / 2, H * 0.4, 40, W / 2, H * 0.4, H * 0.7);
+    g.addColorStop(0, r.dark); g.addColorStop(1, '#110f0d');
+    x.fillStyle = g;
+    x.fillRect(0, 0, W, H);
+  }
+  try { await document.fonts.ready; } catch (e) { /* ignore */ }
+  x.textBaseline = 'alphabetic';
+  x.font = '900 60px Fraunces, Georgia, serif';
+  const wk = x.measureText('Keep').width, ws = x.measureText('sake').width;
+  x.textAlign = 'left';
+  x.fillStyle = '#f4efe6'; x.fillText('Keep', W / 2 - (wk + ws) / 2, 170);
+  x.fillStyle = '#ff7a45'; x.fillText('sake', W / 2 - (wk + ws) / 2 + wk, 170);
+
+  const cw = 800, chh = Math.round(cw * cardCanvas.height / cardCanvas.width);
+  const cy = 240;
+  x.save();
+  x.shadowColor = 'rgba(0, 0, 0, 0.6)'; x.shadowBlur = 60; x.shadowOffsetY = 30;
+  x.drawImage(cardCanvas, (W - cw) / 2, cy, cw, chh);
+  x.restore();
+
+  const y = cy + chh;
+  x.textAlign = 'center';
+  x.fillStyle = '#f4efe6';
+  x.font = '900 68px Fraunces, Georgia, serif';
+  x.fillText(card.daredBy ? `Dared by ${card.daredBy}. Done.` : 'I did it.', W / 2, y + 130, W - 120);
+  x.font = `400 38px ${SANS}`;
+  x.fillStyle = '#d2c9bd';
+  x.fillText('Your turn. Find this dare on Keepsake', W / 2, y + 200, W - 120);
+  x.font = `400 30px ${SANS}`;
+  x.fillStyle = '#a0968a';
+  x.fillText(APP_URL.replace(/^https?:\/\//, '').replace(/\/$/, ''), W / 2, y + 255, W - 120);
+  return c;
+}
+function download(blob, name) {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = name;
@@ -990,7 +1308,27 @@ async function saveCardImage(card) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-  toast('Card image saved');
+}
+// on phones, hand the image to the share sheet; elsewhere, download it
+async function shareImage(canvas, name, text, savedMsg) {
+  const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+  try {
+    const file = new File([blob], name, { type: 'image/png' });
+    if (navigator.canShare && navigator.canShare({ files: [file] }) && matchMedia('(pointer: coarse)').matches) {
+      await navigator.share({ files: [file], text });
+      return;
+    }
+  } catch (e) { if (e && e.name === 'AbortError') return; }
+  download(blob, name);
+  toast(savedMsg);
+}
+async function saveCardImage(card) {
+  shareImage(await renderCardCanvas(card), `keepsake-${pad(card.no)}.png`, 'My Keepsake card', 'Card image saved');
+}
+async function shareStory(card) {
+  const ch = state.byId.get(card.challengeId);
+  shareImage(await renderStoryCanvas(card), `keepsake-${pad(card.no)}-story.png`,
+    `I did "${ch.title}" on Keepsake. Your turn: ${dareLink(ch.id)}`, 'Story image saved');
 }
 
 /* ================= events ================= */
@@ -1038,11 +1376,80 @@ function onAction(t) {
       saveDay();
       renderToday();
       break;
-    case 'dismiss-intro':
-      state.settings.introDismissed = true;
+    case 'settings':
+      openSheet(settingsHTML(), 'Settings');
+      break;
+    case 'onboard-next':
+      state.onboardStep++;
+      renderToday();
+      window.scrollTo(0, 0);
+      break;
+    case 'onboard-done':
+      finishOnboarding();
+      break;
+    case 'notify-on':
+      notifyOn();
+      break;
+    case 'notify-off':
+      state.settings.reminder.notify = false;
       saveSettings();
+      syncReminder();
+      refreshReminderUI();
+      break;
+    case 'notify-test':
+      showNote("Today's challenge", currentChallenge().title, 'keepsake-test');
+      break;
+    case 'calendar':
+      calendarFile();
+      break;
+    case 'install':
+      if (state.installPrompt) {
+        state.installPrompt.prompt();
+        state.installPrompt.userChoice.finally(() => { state.installPrompt = null; });
+      }
+      break;
+    case 'take-dare': {
+      const dr = state.incomingDare;
+      state.incomingDare = null;
+      if (!dr) return;
+      const ch = state.byId.get(dr.id);
+      if (earnedIds().has(dr.id)) toast(`You've already earned ${ch.title}`);
+      else if (d.earned) {
+        state.settings.pendingDare = dr;
+        saveSettings();
+        toast("Today's card is sealed. The dare is tomorrow's challenge.");
+      } else {
+        d.custom = dr.id;
+        d.dare = dr;
+        saveDay();
+        toast(`Dare accepted: ${ch.title}`);
+      }
+      renderToday();
+      window.scrollTo(0, 0);
+      break;
+    }
+    case 'dismiss-dare':
+      state.incomingDare = null;
       renderToday();
       break;
+    case 'dare-friend':
+      shareDare(state.byId.get(t.dataset.id));
+      break;
+    case 'share': {
+      const c = card(t.dataset.id);
+      if (c) openShareSheet(c);
+      break;
+    }
+    case 'share-story': {
+      const c = card(t.dataset.id);
+      if (c) shareStory(c);
+      break;
+    }
+    case 'share-dare': {
+      const c = card(t.dataset.id);
+      if (c) shareDare(state.byId.get(c.challengeId), c);
+      break;
+    }
     case 'reveal': {
       const c = card(t.dataset.id);
       if (c) startReveal(c, { from: activeScreen() });
@@ -1125,6 +1532,14 @@ function bind() {
 
   document.addEventListener('input', e => {
     if (e.target.id === 'deck-search') { state.deckQuery = e.target.value; renderDeckList(); }
+    if (e.target.id === 'set-name') { state.settings.name = e.target.value.trim().slice(0, 24); saveSettings(); }
+  });
+  document.addEventListener('change', e => {
+    const t = e.target;
+    const r = state.settings.reminder;
+    if (t.dataset.pref) { state.settings.prefs[t.dataset.pref] = t.value; saveSettings(); }
+    else if (t.id === 'reminder-time' && t.value) { r.time = t.value; saveSettings(); syncReminder(); }
+    else if (t.id === 'reminder-evening') { r.evening = t.checked; saveSettings(); syncReminder(); }
   });
 
   // tapping anywhere during the reveal skips to the finished card
@@ -1166,6 +1581,8 @@ function bind() {
   document.addEventListener('keydown', e => {
     const stageOpen = !$('#stage').hidden;
     if (e.key === 'Escape') {
+      const over = document.querySelectorAll('.deck-sheet');
+      if (over.length) return over[over.length - 1].close();
       if (stageOpen) {
         if (run && !run.done) finishReveal(run); // Esc skips straight to the card
         else if ($('#stage-actions').classList.contains('show')) {
@@ -1180,8 +1597,9 @@ function bind() {
       return;
     }
     if (e.key === 'Tab') {
-      const scope = stageOpen ? $('#stage')
-        : document.querySelector('.deck-sheet:last-of-type .sheet-panel') || (!$('#proof').hidden && $('#proof .sheet-panel'));
+      const sheets = document.querySelectorAll('.deck-sheet .sheet-panel');
+      const scope = sheets.length ? sheets[sheets.length - 1]
+        : stageOpen ? $('#stage') : (!$('#proof').hidden && $('#proof .sheet-panel'));
       if (!scope) return;
       const f = [...scope.querySelectorAll('button:not([disabled]), input, textarea, summary, [tabindex="0"]')].filter(x => x.offsetParent !== null || x === document.activeElement);
       if (!f.length) return;
@@ -1203,6 +1621,19 @@ async function boot() {
     return;
   }
   state.challenges.forEach(c => state.byId.set(c.id, c));
+
+  // dare links look like ?dare=<challenge id>&from=<first name>
+  const qs = new URLSearchParams(location.search);
+  const dareId = qs.get('dare');
+  if (dareId && state.byId.has(dareId)) state.incomingDare = { id: dareId, from: (qs.get('from') || '').trim().slice(0, 24) };
+  if (location.search) history.replaceState(null, '', location.pathname);
+  if (!state.settings.onboarded && state.cards.length) { state.settings.onboarded = true; saveSettings(); }
+
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();
+    state.installPrompt = e;
+  });
   renderToday();
 }
 boot();

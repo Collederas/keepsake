@@ -6,6 +6,17 @@ Go to an open mic. Take a bus to nowhere. Ask a stranger over 60 for the best ad
 
 One card a day. The Deck is for browsing: you can swap any challenge in as today's, and a challenge finished after midnight can still be sealed the next day.
 
+### Built to keep you going
+
+- **A gentle start that builds courage.** Three setup questions (solo or social, budget, time) filter the deck. You start at courage level 2, and every three challenges at your level unlock the next one.
+- **Reminders.** A morning nudge with the day's challenge and an optional 8pm check-in. There are two ways to get them:
+  - **Notifications:** in browsers that support background checks (Chrome on Android, installed app), and while the app is open.
+  - **A calendar file** with repeating events, which works everywhere and is always on time.
+- **Installable.** Keepsake is a web app you can add to your home screen (a PWA), and it works offline.
+- **Dares and Stories.** Every card can be shared as a 1080×1920 Story image, or as a dare link (`?dare=<challenge>&from=<name>`) that opens the same challenge for a friend. Cards record who dared you.
+
+Real push notifications, sent while the app is closed and on time on every platform, need a small server to send them. This prototype doesn't have one yet.
+
 ## Run it
 
 It's a static site with no build step:
@@ -22,6 +33,7 @@ It also works on GitHub Pages as is. All data stays on the device: cards are sto
 |---|---|
 | `data/challenges.json` | The curated challenge database (101 challenges) |
 | `index.html`, `style.css`, `app.js` | The prototype: Today / Deck / Book, the proof sheet, the card reveal, PNG export |
+| `sw.js`, `manifest.webmanifest`, `icons/` | Offline support, background reminders, home-screen install |
 
 ### Challenge schema
 
