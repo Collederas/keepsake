@@ -339,11 +339,21 @@ function nextPick() {
     c => c.courage <= cap,
     () => true,
   ];
+  // the very first challenges come from a handpicked set of strong starters
+  if (!realCards().length) tiers.unshift(c => c.starter && fitsPrefs(c) && c.courage <= cap);
   let pool = [];
   for (const t of tiers) { pool = fresh.filter(t); if (pool.length) break; }
   if (!pool.length) pool = state.challenges.filter(c => !skip(c.id) && isUnlocked(c));
   if (!pool.length) pool = state.challenges.filter(c => !c.secret);
-  pool.sort((a, b) => hash(d.date + a.id) - hash(d.date + b.id));
+  // variety: never the same kind of thing as a swap you just passed on or your last few cards,
+  // and preferably not the same category twice in a row
+  const recent = [...realCards()].sort((a, b) => b.no - a.no).slice(0, 4).map(c => state.byId.get(c.challengeId));
+  const passed = [...d.shown, d.prev && d.prev.id].map(id => state.byId.get(id));
+  const near = [...passed, ...recent].filter(Boolean);
+  const themes = new Set(near.map(c => c.theme));
+  const cats = new Set([...passed, recent[0]].filter(Boolean).map(c => c.category));
+  const score = c => (themes.has(c.theme) ? 2 : 0) + (cats.has(c.category) ? 1 : 0);
+  pool.sort((a, b) => score(a) - score(b) || hash(d.date + a.id) - hash(d.date + b.id));
   return pool[0].id;
 }
 function currentChallenge() {
@@ -2321,12 +2331,14 @@ async function boot() {
   bind();
   try {
     const res = await fetch('data/challenges.json');
-    state.challenges = await res.json();
+    // retired challenges stay loadable so cards already earned still show, but never come up again
+    const all = await res.json();
+    all.forEach(c => state.byId.set(c.id, c));
+    state.challenges = all.filter(c => !c.retired);
   } catch (e) {
     $('#screen-today').innerHTML = '<p class="empty-list">Couldn\'t load the challenges. Check your connection and try again.</p>';
     return;
   }
-  state.challenges.forEach(c => state.byId.set(c.id, c));
   state.byId.set(DAY_ZERO.id, DAY_ZERO);
 
   // dare links look like ?dare=<challenge id>&from=<first name>
