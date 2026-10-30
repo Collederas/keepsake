@@ -51,6 +51,7 @@ function fmtDate(iso) {
 }
 function fmtMinutes(m) {
   if (m < 60) return `${m} min`;
+  if (m >= 1440) return 'A weekend';
   if (m >= 600) return 'All day';
   const h = m / 60;
   return `${Number.isInteger(h) ? h : h.toFixed(1)} h`;
@@ -147,7 +148,7 @@ const state = {
   cards: store.get('ks.cards', []),
   day: store.get('ks.day', null),
   settings: Object.assign({
-    sound: true, name: '', onboarded: false, pendingDare: null,
+    sound: true, name: '', onboarded: false, pendingDare: null, seenSecrets: [],
     prefs: { social: 'any', budget: 'any', time: 'any' },
     reminder: { time: '09:00', evening: true, notify: false },
   }, store.get('ks.settings', {})),
@@ -163,6 +164,38 @@ const saveCards = () => store.set('ks.cards', state.cards);
 const saveDay = () => store.set('ks.day', state.day);
 const saveSettings = () => store.set('ks.settings', state.settings);
 const earnedIds = () => new Set(state.cards.map(c => c.challengeId));
+
+/* ================= secret challenges ================= */
+// Secret challenges stay hidden in the Deck until their unlock condition is met.
+function unlockInfo(ch) {
+  const u = ch.unlock;
+  if (!ch.secret || !u) return { unlocked: true };
+  const result = (have, need, hint) => ({ unlocked: have >= need, have: Math.min(have, need), need, hint });
+  if (u.after) {
+    const done = earnedIds();
+    const names = u.after.map(id => `“${(state.byId.get(id) || {}).title}”`).join(' and ');
+    return result(u.after.filter(id => done.has(id)).length, u.after.length, `Hidden behind ${names}`);
+  }
+  if (u.category) {
+    const n = state.cards.filter(c => (state.byId.get(c.challengeId) || {}).category === u.category).length;
+    return result(n, u.count, `Seal ${u.count} ${CATS[u.category].label} challenges`);
+  }
+  if (u.cards) return result(state.cards.length, u.cards, `Fill your Book with ${u.cards} cards`);
+  if (u.level) return result(courageProgress().cap, u.level, `Reach courage level ${u.level}`);
+  if (u.days) return result(new Set(state.cards.map(c => dayKey(new Date(c.date)))).size, u.days, `Seal cards on ${u.days} different days`);
+  if (u.rarity) return result(state.cards.some(c => c.rarity >= u.rarity && c.revealed !== false) ? 1 : 0, 1, `Earn a ${RARITY[u.rarity].name} card`);
+  if (u.dare) return result(state.cards.some(c => c.daredBy) ? 1 : 0, 1, 'Complete a dare from a friend');
+  return { unlocked: true };
+}
+const isUnlocked = ch => unlockInfo(ch).unlocked;
+const unlockedSecretIds = () => new Set(state.challenges.filter(c => c.secret && isUnlocked(c)).map(c => c.id));
+const newSecrets = () => {
+  const done = earnedIds();
+  return [...unlockedSecretIds()].filter(id => !done.has(id) && !state.settings.seenSecrets.includes(id));
+};
+function updateDeckBadge() {
+  $('.tab[data-screen="deck"]').classList.toggle('has-new', newSecrets().length > 0);
+}
 const currentId = d => d.custom || d.shown[d.idx];
 
 function today() {
@@ -208,7 +241,7 @@ function nextPick() {
   const done = earnedIds();
   const skip = id => d.shown.includes(id) || (d.prev && d.prev.id === id);
   const { cap } = courageProgress();
-  const fresh = state.challenges.filter(c => !done.has(c.id) && !skip(c.id));
+  const fresh = state.challenges.filter(c => !done.has(c.id) && !skip(c.id) && isUnlocked(c));
   // the first pool that still has something in it: fits your life and sits at the edge of your courage
   const tiers = [
     c => fitsPrefs(c) && c.courage === cap,
@@ -219,8 +252,8 @@ function nextPick() {
   ];
   let pool = [];
   for (const t of tiers) { pool = fresh.filter(t); if (pool.length) break; }
-  if (!pool.length) pool = state.challenges.filter(c => !skip(c.id));
-  if (!pool.length) pool = state.challenges;
+  if (!pool.length) pool = state.challenges.filter(c => !skip(c.id) && isUnlocked(c));
+  if (!pool.length) pool = state.challenges.filter(c => !c.secret);
   pool.sort((a, b) => hash(d.date + a.id) - hash(d.date + b.id));
   return pool[0].id;
 }
@@ -282,7 +315,7 @@ function cardHTML(card, url, cls = '', tag = 'div') {
       <span class="kcard-face kcard-back"><span class="sigil">${icon('seal')}<small>KEEPSAKE</small></span></span>
       <span class="kcard-face kcard-front">
         <span class="kf">
-          <span class="kf-top"><span>${CATS[ch.category].label.toUpperCase()}</span><span class="kf-no">${card.no ? '#' + pad(card.no) : ''}</span></span>
+          <span class="kf-top"><span>${ch.secret ? 'SECRET · ' : ''}${CATS[ch.category].label.toUpperCase()}</span><span class="kf-no">${card.no ? '#' + pad(card.no) : ''}</span></span>
           ${photo}
           <span class="seal">${icon('seal')}</span>
           <span class="kf-body">
@@ -592,9 +625,10 @@ async function fillTodayCard(el, card) {
 function renderDeck() {
   const el = $('#screen-deck');
   const done = earnedIds();
-  const filters = [['all', 'All'], ['todo', 'Not done yet'], ...Object.entries(CATS).map(([k, v]) => [k, v.label])];
+  const filters = [['all', 'All'], ['todo', 'Not done yet'], ['secret', 'Secret'], ...Object.entries(CATS).map(([k, v]) => [k, v.label])];
+  const hidden = state.challenges.filter(c => !isUnlocked(c)).length;
   el.innerHTML = `
-    <header class="topbar"><h1 class="logo">The Deck</h1><span class="topbar-meta">${done.size} of ${state.challenges.length} earned</span></header>
+    <header class="topbar"><h1 class="logo">The Deck</h1><span class="topbar-meta">${done.size} of ${state.challenges.length - hidden} earned${hidden ? ` · ${hidden} secret` : ''}</span></header>
     <label class="sr-only" for="deck-search">Search challenges</label>
     <input class="search" id="deck-search" type="search" placeholder="Search challenges" value="${esc(state.deckQuery)}" autocomplete="off">
     <div class="filters" role="group" aria-label="Filter">${filters.map(([k, l]) => `<button class="filter" data-filter="${k}" aria-pressed="${k === state.deckFilter}">${l}</button>`).join('')}</div>
@@ -606,13 +640,30 @@ function renderDeckList() {
   const d = today();
   const f = state.deckFilter;
   const q = state.deckQuery.trim().toLowerCase();
-  const list = state.challenges.filter(c =>
-    (f === 'all' || (f === 'todo' ? !done.has(c.id) : c.category === f)) &&
-    (!q || (c.title + ' ' + c.prompt).toLowerCase().includes(q)));
+  const fresh = newSecrets();
+  const list = state.challenges.filter(c => {
+    const open = isUnlocked(c);
+    if (f === 'todo' && (done.has(c.id) || !open)) return false;
+    if (f === 'secret' && !c.secret) return false;
+    if (CATS[f] && c.category !== f) return false;
+    if (q) return open && (c.title + ' ' + c.prompt).toLowerCase().includes(q);
+    return true;
+  });
   $('#deck-list').innerHTML = list.length ? list.map(c => {
-    const pill = done.has(c.id) ? '<span class="pill">Earned</span>' : currentId(d) === c.id && !d.earned ? '<span class="pill today">Today</span>' : '';
+    const info = unlockInfo(c);
+    if (!info.unlocked) return `
+      <button class="deck-item locked" data-locked="${c.id}">
+        <span class="t"><span>Secret challenge</span>${icon('lock')}</span>
+        <span class="s">${esc(info.hint)}</span>
+        <span class="m">${CATS[c.category].label}${info.need > 1 ? ` · ${info.have} of ${info.need}` : ''}</span>
+        ${info.need > 1 ? `<span class="bar" aria-hidden="true"><i style="width:${(info.have / info.need) * 100}%"></i></span>` : ''}
+      </button>`;
+    const pill = done.has(c.id) ? '<span class="pill">Earned</span>'
+      : currentId(d) === c.id && !d.earned ? '<span class="pill today">Today</span>'
+      : fresh.includes(c.id) ? '<span class="pill new">New</span>'
+      : c.secret ? '<span class="pill secret">Secret</span>' : '';
     return `
-      <button class="deck-item" data-open="${c.id}">
+      <button class="deck-item${c.secret ? ' secret' : ''}" data-open="${c.id}">
         <span class="t"><span>${esc(c.title)}</span>${pill}</span>
         <span class="s">${esc(c.prompt)}</span>
         <span class="m">${CATS[c.category].label} · Courage ${c.courage} of 5 · ${fmtMinutes(c.minutes)}</span>
@@ -673,6 +724,7 @@ function show(name) {
     if (on) t.setAttribute('aria-current', 'page'); else t.removeAttribute('aria-current');
   });
   ({ today: renderToday, deck: renderDeck, book: renderBook })[name]();
+  updateDeckBadge();
   window.scrollTo(0, 0);
 }
 const activeScreen = () => $('.tab.active').dataset.screen;
@@ -782,6 +834,7 @@ async function seal() {
   const easier = $('#easier-input').checked && ch.courage > 1;
   const dare = today().dare;
   const capBefore = courageProgress().cap;
+  const secretsBefore = unlockedSecretIds();
   const card = {
     id: uid(),
     no: state.cards.reduce((m, c) => Math.max(m, c.no), 0) + 1,
@@ -806,7 +859,9 @@ async function seal() {
   closeProof();
   if (!photoOk) toast("This browser couldn't store the photo. It will disappear after a reload.");
   const capAfter = courageProgress().cap;
-  startReveal(card, { from: kind, levelUp: capAfter > capBefore ? capAfter : 0 });
+  const unlocked = [...unlockedSecretIds()].filter(id => !secretsBefore.has(id));
+  updateDeckBadge();
+  startReveal(card, { from: kind, levelUp: capAfter > capBefore ? capAfter : 0, unlocked });
 }
 
 /* ================= audio ================= */
@@ -983,7 +1038,7 @@ function syncSoundBtn() {
   b.innerHTML = icon(state.settings.sound ? 'sound' : 'mute');
 }
 
-async function startReveal(card, { from = 'book', levelUp = 0 } = {}) {
+async function startReveal(card, { from = 'book', levelUp = 0, unlocked = [] } = {}) {
   const url = await photoUrl(card);
   stage.open();
   const slot = $('#stage-card-slot');
@@ -994,7 +1049,7 @@ async function startReveal(card, { from = 'book', levelUp = 0 } = {}) {
   const hint = $('#stage-hint');
   hint.textContent = 'Tap the card to reveal it';
   hint.classList.add('pulse');
-  run = { card, el, url, from, levelUp, started: false, startedAt: 0, done: false };
+  run = { card, el, url, from, levelUp, unlocked, started: false, startedAt: 0, done: false };
   const myRun = run;
   el.addEventListener('click', () => reveal(myRun), { once: true });
   el.focus();
@@ -1083,10 +1138,14 @@ function finishReveal(rn) {
   card.revealed = true;
   saveCards();
   const ch = state.byId.get(card.challengeId);
-  announce(`${rc.name} card revealed: ${ch.title}. It's in your Book.${rn.levelUp ? ` Courage level ${rn.levelUp} unlocked.` : ''}`);
-  if (rn.levelUp) {
+  const news = [];
+  if (rn.levelUp) news.push(`Courage level ${rn.levelUp} unlocked. Bolder challenges ahead.`);
+  if (rn.unlocked.length === 1) news.push(`Secret challenge unlocked: ${state.byId.get(rn.unlocked[0]).title}. Find it in the Deck.`);
+  if (rn.unlocked.length > 1) news.push(`${rn.unlocked.length} secret challenges unlocked. Find them in the Deck.`);
+  announce(`${rc.name} card revealed: ${ch.title}. It's in your Book. ${news.join(' ')}`);
+  if (news.length) {
     const hint = $('#stage-hint');
-    hint.textContent = `Courage level ${rn.levelUp} unlocked. Bolder challenges ahead.`;
+    hint.textContent = news.join('\n');
     hint.classList.add('levelup');
   }
 
@@ -1188,7 +1247,7 @@ async function renderCardCanvas(card) {
   x.font = `700 30px ${SANS}`;
   x.fillStyle = '#d2c9bd';
   x.textAlign = 'left';
-  x.fillText(CATS[ch.category].label.toUpperCase(), 64, 92);
+  x.fillText(`${ch.secret ? 'SECRET · ' : ''}${CATS[ch.category].label.toUpperCase()}`, 64, 92);
   x.textAlign = 'right';
   x.fillStyle = r.color;
   x.font = '700 34px Fraunces, Georgia, serif';
@@ -1508,7 +1567,7 @@ function onAction(t) {
 
 function bind() {
   document.addEventListener('click', e => {
-    const t = e.target.closest('[data-act],[data-goto],[data-filter],[data-open],[data-view],.tab');
+    const t = e.target.closest('[data-act],[data-goto],[data-filter],[data-open],[data-locked],[data-view],.tab');
     if (!t) return;
     if (t.classList.contains('tab')) return show(t.dataset.screen);
     if (t.dataset.goto) return show(t.dataset.goto);
@@ -1519,7 +1578,25 @@ function bind() {
     }
     if (t.dataset.open) {
       const ch = state.byId.get(t.dataset.open);
-      return openSheet(questHTML(ch) + deckActions(ch), ch.title);
+      if (ch.secret && !state.settings.seenSecrets.includes(ch.id)) {
+        state.settings.seenSecrets.push(ch.id);
+        saveSettings();
+        updateDeckBadge();
+        if ($('#deck-list')) renderDeckList();
+      }
+      return openSheet((ch.secret ? '<p class="secret-tag">Secret challenge</p>' : '') + questHTML(ch) + deckActions(ch), ch.title);
+    }
+    if (t.dataset.locked) {
+      const ch = state.byId.get(t.dataset.locked);
+      const info = unlockInfo(ch);
+      return openSheet(`
+        <div class="locked-detail">
+          ${icon('lock')}
+          <h2>Secret challenge</h2>
+          <p class="locked-hint">${esc(info.hint)}</p>
+          ${info.need > 1 ? `<div class="level"><span>${CATS[ch.category].label} · ${info.have} of ${info.need}</span><span class="bar" aria-hidden="true"><i style="width:${(info.have / info.need) * 100}%"></i></span></div>` : ''}
+          <p class="sheet-note">Secret challenges are bigger, stranger and more personal than the rest of the deck. Each one opens when you've earned it, or when a friend dares you to do it.</p>
+        </div>`, 'Secret challenge');
     }
     if (t.dataset.view) {
       const c = state.cards.find(x => x.id === t.dataset.view);
@@ -1635,5 +1712,6 @@ async function boot() {
     state.installPrompt = e;
   });
   renderToday();
+  updateDeckBadge();
 }
 boot();
