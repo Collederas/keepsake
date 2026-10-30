@@ -47,7 +47,9 @@ input, textarea { font: inherit; caret-color: var(--accent); }
 
 p, li { text-wrap: pretty; }
 #app { max-width: 520px; margin: 0 auto; padding: 20px 16px calc(100px + env(safe-area-inset-bottom)); }
-.screen { display: none; animation: fade .35s var(--ease-out); }
+/* opacity only: a moving screen would drag the pinned Today actions with it */
+.screen { display: none; animation: screen-in .35s var(--ease-out); }
+@keyframes screen-in { from { opacity: 0; } }
 .screen.active { display: block; }
 @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
@@ -527,3 +529,13 @@ a.btn.primary { color: var(--accent-ink); }
 .set-row .ico { flex: none; width: 18px; height: 18px; margin-left: auto; color: var(--ink-3); }
 .set-val + .ico { margin-left: 0; }
 .set-install { margin-top: 14px; }
+
+/* ---------- Today: the decision stays put ---------- */
+/* The challenge varies from week to week; I did it / Plan it / Swap never do. They sit in one place,
+   in thumb reach just above the tabs, and a long challenge scrolls behind them. */
+.actions.dock { position: fixed; z-index: 29; left: 0; right: 0; bottom: calc(72px + env(safe-area-inset-bottom)); max-width: 520px; margin: 0 auto;
+  gap: 8px; padding: 20px 16px 8px; background: linear-gradient(rgba(17, 15, 13, 0), var(--bg) 20px); }
+.actions.dock .actions-row .btn { min-height: 44px; padding-block: 8px; }
+#screen-today:has(.dock) { padding-bottom: 132px; }
+/* no strip of challenge text between the pinned actions and the tabs */
+body:has(#screen-today.active .dock) .tabs { background: var(--bg); }
