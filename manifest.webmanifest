@@ -1,7 +1,7 @@
 {
   "name": "Keepsake",
   "short_name": "Keepsake",
-  "description": "Do something worth telling. One small dare a week, a little braver each time.",
+  "description": "Do something worth telling. One story at a time.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
