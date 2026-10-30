@@ -285,7 +285,7 @@ function testerNoticeHTML() {
   if (statsAskDue()) return `
     <aside class="notice tester">
       <div><strong>You're one of Keepsake's first testers.</strong>
-        <span class="notice-sub">Mind sending your stats? Numbers and which challenges you did, nothing you wrote.</span>
+        <span class="notice-sub">Mind sending me your stats? Nothing you wrote.</span>
         <button class="btn" data-act="stats">See what gets sent</button></div>
       <button class="icon-btn" data-act="stats-later" aria-label="Not now">${icon('close')}</button>
     </aside>`;
@@ -762,7 +762,7 @@ function onboardingHTML() {
         <li>Come back and add a photo or a line.</li>
         <li>It turns into a card in your Book.</li>
       </ul>
-      <p>A few quick questions so the first ones actually fit your life. You'll start easy and work up to the scary stuff.</p>
+      <p>A few quick questions first. You'll start easy and work up to the scary stuff.</p>
       <div class="actions">
         <button class="btn primary big" data-act="onboard-next">Let's go</button>
         <button class="btn ghost" data-act="onboard-done">Skip</button>
@@ -778,7 +778,7 @@ function onboardingHTML() {
   return `
     <section class="onboard">
       <h2>Want a nudge?</h2>
-      <p>A reminder when there's a new challenge, and a check-in if you haven't completed it yet. Never more than that, and it backs off when you're busy.</p>
+      <p>A nudge for each new challenge, and a check-in if you haven't done it. That's all.</p>
       <div id="reminder-box">${reminderHTML()}</div>
       ${installHTML()}
       <div class="actions"><button class="btn primary big" data-act="onboard-next">Next</button></div>
@@ -831,21 +831,21 @@ function reminderHTML() {
   const perm = 'Notification' in window ? Notification.permission : 'unsupported';
   const iosNeedsInstall = isIOS() && !isStandalone();
   let notify;
-  if (iosNeedsInstall) notify = '<p class="hint">On iPhone, notifications only work once Keepsake is on your Home Screen (tap Share, then Add to Home Screen). The calendar works right away.</p>';
-  else if (perm === 'unsupported') notify = '<p class="hint">This browser can\'t do notifications. The calendar works everywhere.</p>';
-  else if (perm === 'denied') notify = '<p class="hint">Notifications are blocked for this site. Turn them on in your browser settings, or use the calendar.</p>';
+  if (iosNeedsInstall) notify = '<p class="hint">On iPhone, add Keepsake to your Home Screen first (Share, then Add to Home Screen).</p>';
+  else if (perm === 'unsupported') notify = '<p class="hint">This browser can\'t do notifications.</p>';
+  else if (perm === 'denied') notify = '<p class="hint">Notifications are blocked. You can allow them in your browser settings.</p>';
   else if (r.notify && perm === 'granted') notify = `<p class="ok">Notifications are on. <button class="link" data-act="notify-test">Send a test</button> · <button class="link" data-act="notify-off">Turn off</button></p>`;
   else notify = `<button class="btn" data-act="notify-on">${icon('bell')} Turn on notifications</button>`;
   return `
     <label class="field inline"><span class="field-label">Reminder time</span><input type="time" id="reminder-time" value="${r.time}"></label>
     ${weekly()
-      ? '<p class="hint">On a weekly rhythm you get a nudge on Monday and a check-in on Thursday, only if you haven\'t done it yet.</p>'
-      : `<label class="check"><input type="checkbox" id="reminder-evening" ${r.evening ? 'checked' : ''}><span>Evening check-in at 8pm<small>Only if you haven't done the challenge yet.</small></span></label>`}
+      ? '<p class="hint">A nudge on Monday, and a check-in on Thursday if you haven\'t done it yet.</p>'
+      : `<label class="check"><input type="checkbox" id="reminder-evening" ${r.evening ? 'checked' : ''}><span>Evening check-in at 8pm<small>Only if you haven't done it yet.</small></span></label>`}
     <div class="reminder-ways">
       ${notify}
       <button class="btn" data-act="calendar">${icon('calendar')} Add to my calendar</button>
     </div>
-    <p class="hint">Phones sometimes delay notifications from web apps. Calendar reminders are always on time.</p>`;
+    <p class="hint">Notifications can arrive late. Calendar reminders don't.</p>`;
 }
 function installHTML() {
   if (isStandalone()) return '';
@@ -921,7 +921,7 @@ function busySettingsHTML() {
       <button class="btn" data-act="busy-set" data-len="14">2 weeks</button>
       <button class="btn" data-act="busy-set" data-len="open">Until I'm back</button>
     </div>
-    <p class="hint">Pauses all reminders. Nothing piles up while you're away.</p>`;
+    <p class="hint">Pauses reminders. Nothing piles up.</p>`;
 }
 function refreshReminderUI() {
   const box = $('#reminder-box');
@@ -963,7 +963,7 @@ async function notifyOn() {
     syncReminder();
     toast('Notifications on');
   } else {
-    toast("No notifications then. The calendar works too.");
+    toast('No notifications then');
   }
   refreshReminderUI();
 }
@@ -1113,8 +1113,7 @@ function planSheetHTML(ch) {
         <button class="btn" data-act="plan-calendar" data-id="${ch.id}">${icon('calendar')} Add to calendar</button>
         <button class="btn" data-act="plan-tell" data-id="${ch.id}">${icon('share')} Tell a friend</button>
       </div>
-    </div>
-    <p class="sheet-note">Picking a time and place makes you way more likely to actually do it.</p>`;
+    </div>`;
 }
 function planForm(id) {
   const day = $('input[name="plan-day"]:checked');
@@ -1234,8 +1233,7 @@ function openShareSheet(card) {
       <button class="btn primary big" data-act="share-story" data-id="${card.id}">${icon('share')} Share to Stories</button>
       ${isZero(card) ? '' : `<button class="btn big" data-act="share-dare" data-id="${card.id}">Dare a friend</button>`}
       <button class="btn big ghost" data-act="save-img" data-id="${card.id}">Save image</button>
-    </div>
-    <p class="sheet-note">Stories gets a tall version of your card. A dare sends your friend a link to this challenge.</p>`, 'Share', { over: true });
+    </div>`, 'Share', { over: true });
 }
 async function fillTodayCard(el, card) {
   const slot = $('.mini-slot', el);
@@ -1308,7 +1306,7 @@ function deckActions(ch) {
     + `<button class="btn ghost big" data-act="dare-friend" data-id="${ch.id}">${icon('share')} Dare a friend</button>`;
   if (card) return `<div class="actions"><button class="btn big" data-view="${card.id}">See your card</button><button class="btn ghost big" data-act="dare-friend" data-id="${ch.id}">${icon('share')} Dare a friend</button></div>`;
   if (ch.courage > courageProgress().cap && currentId(d) !== ch.id) return `<div class="actions"><button class="btn ghost big" data-act="dare-friend" data-id="${ch.id}">${icon('share')} Dare a friend</button></div>
-    <p class="sheet-note">This one opens at courage ${ch.courage}. You're at ${courageProgress().cap}, and every three at your level gets you one closer.</p>`;
+    <p class="sheet-note">Opens at courage ${ch.courage}. You're at ${courageProgress().cap}.</p>`;
   if (d.earned || fewCapped()) return `<div class="actions">${dare}</div><p class="sheet-note">You've done ${fewCapped() ? 'three this week' : weekly() ? 'one this week' : "today's"}. Save this one for ${fewCapped() || weekly() ? 'next week' : 'tomorrow'}? Plan it.</p>`;
   if (currentId(d) === ch.id) return `<div class="actions"><button class="btn primary big" data-act="done" data-id="${ch.id}">I did it</button>${dare}</div><p class="sheet-note">This is ${W().cur} challenge.</p>`;
   return `<div class="actions"><button class="btn primary big" data-act="pick" data-id="${ch.id}">Do this one ${W().now}</button>${dare}</div>
@@ -1323,7 +1321,7 @@ async function renderBook() {
   const header = '<header class="topbar"><h1 class="logo">Your Book</h1></header>';
   if (!cards.length) {
     el.innerHTML = `${header}
-      <p class="empty-book">Every challenge you do ends up here as a card, with your photo and your words.</p>
+      <p class="empty-book">Every challenge you do ends up here.</p>
       <div class="grid"><div class="ghost-card">${icon('seal')}<span>Your first card goes here</span></div></div>
       <div class="actions"><button class="btn" data-goto="today">See ${W().cur} challenge</button></div>`;
     return;
@@ -2151,10 +2149,10 @@ function onAction(t) {
       count('help');
       openSheet(`
         <h2 class="proof-title">How this works</h2>
-        <p><strong>Courage</strong> is how bold your challenges get. You start at 2. Do three challenges at your level and the next level opens up. Easy versions don't count toward it, but they still go in your Book.</p>
-        <p><strong>Card colours</strong> come from how much nerve a challenge takes, from Common (grey) to Legendary (gold).</p>
-        <p><strong>Foil</strong> is the surprise. Some cards come out foil because of how you did the challenge. You find out when you flip it.</p>
-        <p><strong>Secret challenges</strong> are the big ones. They open up as you go. The Deck shows what opens each one.</p>`, 'How this works');
+        <p><strong>Courage</strong> is how bold your challenges get. You start at 2. Three at your level opens the next. Easy versions don't count.</p>
+        <p><strong>Colours</strong> show how much nerve it took, from Common (grey) to Legendary (gold).</p>
+        <p><strong>Foil</strong> depends on how you did it. You find out when you flip.</p>
+        <p><strong>Secret challenges</strong> open up as you go. The Deck shows what opens each one.</p>`, 'How this works');
       break;
     case 'zero-make':
       makeDayZero();
@@ -2465,7 +2463,7 @@ function bind() {
           <p class="locked-hint">${esc(info.hint)}</p>
           ${unlockLink(ch)}
           ${info.need > 1 ? `<div class="level"><span>${CATS[ch.category].label} · ${info.have} of ${info.need}</span><span class="bar" aria-hidden="true"><i style="width:${(info.have / info.need) * 100}%"></i></span></div>` : ''}
-          <p class="sheet-note">Secret challenges are the big ones: weirder, harder, more personal. They open up as you go, or when a friend dares you.</p>
+          <p class="sheet-note">The big ones: weirder, harder, more personal. A friend's dare opens one early.</p>
         </div>`, 'Secret challenge');
     }
     if (t.dataset.view) {
