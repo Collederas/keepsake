@@ -8,8 +8,9 @@ Go to an open mic. Take a bus to nowhere. Ask a stranger over 60 for the best ad
 
 ### Built to keep you going
 
-- **Day Zero.** Setup ends with one question, "What's one thing you've always wanted to try?". The answer becomes card #000, so the Book never starts empty. It doesn't count toward progress.
-- **A gentle start that builds courage.** Setup questions (how often, solo or social, budget, time) shape the deck. You start at courage level 2, and every three challenges at your level unlock the next one.
+- **Day Zero.** Setup ends with one question, "What's one thing you've always wanted to try?". The answer goes in the Book as an empty frame, #000. It turns into a real card, with your photo, your line and the date, the day you actually do it. It doesn't count toward progress.
+- **Foil.** A card's colour comes from the challenge's courage, so you know it before you flip. Foil is the surprise. A card comes out foil because of how you did it: you planned it and did it, a friend dared you, it's your first card in a category, or you came back after a break. You only find out when the card flips.
+- **A gentle start that builds courage.** Setup questions (how often, solo or social, budget, time) shape the deck. You start at courage level 2, and every three challenges at your level unlock the next one. The Deck lists challenges near your level first; harder ones show when they open.
 - **Reminders that back off.** On a weekly rhythm, a nudge on Monday and a check-in on Thursday. Otherwise, one morning reminder on your rhythm's days, worded as an invitation. The 8pm check-in is opt-in, except on days you planned something, and has a "Not today" button. If you go quiet, reminders come every other day after 3 days. Around day 5 the app asks once whether you're busy. After a week, it only sends a fresh start on a Monday or the 1st, and after two of those it sends a last message and stops. Opening the app resets all of this. Nothing is ever "missed" or "late". There are two ways to get reminders:
   - **Notifications:** in browsers that support background checks (Chrome on Android, installed app), and while the app is open.
   - **A calendar file** with repeating events, which works everywhere and is always on time.

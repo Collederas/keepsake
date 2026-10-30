@@ -53,7 +53,7 @@
   <!-- Proof sheet: seal a new card, or edit an existing one -->
   <div id="proof" class="sheet" hidden>
     <div class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="proof-title">
-      <button class="icon-btn sheet-close" data-close aria-label="Close"><svg class="ico"><use href="#i-close"/></svg></button>
+      <button class="icon-btn sheet-close" data-close aria-label="Close"><svg class="ico" aria-hidden="true"><use href="#i-close"/></svg></button>
       <h2 id="proof-title" class="proof-title"></h2>
       <p class="proof-easy" id="proof-easy" hidden>Easy version</p>
       <div class="proof-top">
@@ -61,7 +61,7 @@
         <div class="proof-photo">
           <input type="file" id="photo-input" accept="image/*" hidden>
           <button type="button" class="photo-btn" id="photo-btn">
-            <svg class="ico"><use href="#i-camera"/></svg>
+            <svg class="ico" aria-hidden="true"><use href="#i-camera"/></svg>
             <span id="photo-btn-label">Add a photo</span>
           </button>
           <p class="hint">A snap from the moment. Or skip it and just write a line.</p>
@@ -89,7 +89,7 @@
   <div id="stage" class="stage" role="dialog" aria-modal="true" aria-label="Your card" hidden>
     <canvas id="fx" aria-hidden="true"></canvas>
     <div class="rays" aria-hidden="true"></div>
-    <button class="icon-btn sound-btn" id="sound-btn" aria-pressed="true" aria-label="Sound"><svg class="ico"><use href="#i-sound"/></svg></button>
+    <button class="icon-btn sound-btn" id="sound-btn" aria-pressed="true" aria-label="Sound on"><svg class="ico" aria-hidden="true"><use href="#i-sound"/></svg></button>
     <div class="stage-inner">
       <p class="stage-hint" id="stage-hint"></p>
       <div id="stage-card-slot"></div>

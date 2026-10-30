@@ -106,7 +106,7 @@ p, li { text-wrap: pretty; }
 .meta { margin: 0; font-size: 14.5px; color: var(--paper-ink-2); }
 .safety { margin-top: 14px; font-size: 14px; background: #f8e7b8; color: #5b4000; border-radius: 10px; padding: 9px 12px; }
 details.easier { margin-top: 14px; border-top: 1px dashed rgba(42,33,24,.2); padding-top: 12px; font-size: 15px; }
-details.easier summary { cursor: pointer; font-weight: 700; color: var(--paper-accent); min-height: 32px; }
+details.easier summary { cursor: pointer; font-weight: 700; color: var(--paper-accent); padding-block: 11px; margin-block: -6px; }
 details.easier p { margin: 6px 0 0; }
 
 .done-today { text-align: center; padding: 4px 0 0; }
@@ -221,7 +221,11 @@ button.kcard { border: 0; padding: 0; background: none; color: inherit; font: in
 .kcard.mid .seal .ico { width: 16px; height: 16px; }
 
 /* ---------- stage ---------- */
-.stage { position: fixed; inset: 0; z-index: 50; background: rgba(10, 8, 6, .98); display: grid; place-items: center; overflow: hidden; animation: fade .3s ease; }
+.stage { position: fixed; inset: 0; z-index: 50; background: #0a0806; display: grid; place-items: center; overflow: hidden; animation: dim .3s ease; }
+/* only the backdrop fades in; the card and its text never go see-through */
+@keyframes dim { from { background-color: rgba(10, 8, 6, 0); } }
+.stage-inner { animation: rise .45s var(--ease-out); }
+@keyframes rise { from { transform: translateY(24px) scale(.97); } }
 #fx { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; }
 .sound-btn { position: absolute; top: calc(12px + env(safe-area-inset-top)); right: 12px; z-index: 4; background: rgba(255,255,255,.06); }
 .stage-inner { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 16px; }
@@ -261,9 +265,10 @@ button.kcard { border: 0; padding: 0; background: none; color: inherit; font: in
 .stage-actions.show { opacity: 1; }
 
 /* ---------- sheet ---------- */
-.sheet { position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,.6); display: flex; align-items: flex-end; justify-content: center; animation: fade .2s; }
+.sheet { position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,.6); display: flex; align-items: flex-end; justify-content: center; animation: dim-sheet .2s; }
+@keyframes dim-sheet { from { background-color: rgba(0,0,0,0); } }
 .sheet-panel { position: relative; background: var(--bg-2); border: 1px solid var(--line); border-bottom: 0; width: 100%; max-width: 520px; max-height: 92vh; overflow-y: auto; border-radius: 24px 24px 0 0; padding: 22px 16px calc(22px + env(safe-area-inset-bottom)); animation: up .35s var(--ease-out); }
-@keyframes up { from { transform: translateY(40px); opacity: 0; } }
+@keyframes up { from { transform: translateY(100%); } }
 .sheet-close { position: absolute; right: 10px; top: 10px; }
 .sheet.over { z-index: 70; }
 .share-list { display: grid; gap: 10px; }
@@ -395,7 +400,8 @@ button.kcard { border: 0; padding: 0; background: none; color: inherit; font: in
 .plan-label { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: #ffb08f; }
 .plan-label .ico { width: 16px; height: 16px; }
 .plan-block p { margin: 4px 0 2px; font: 700 20px/1.25 var(--serif); }
-.plan-links { font-size: 14px; color: var(--ink-3); }
+.plan-links { display: flex; flex-wrap: wrap; column-gap: 18px; font-size: 14px; color: var(--ink-3); }
+.plan-links .link.quiet { margin-left: auto; font-weight: 400; color: var(--ink-3); }
 .plan-for { margin: -10px 0 16px; font: italic 500 18px var(--serif); color: var(--ink-2); }
 .plan-preview { margin: 4px 0 16px; padding: 12px 14px; border-radius: 12px; background: var(--panel); font: 700 19px/1.3 var(--serif); }
 .plan-preview::before { content: "Your plan: "; font: 400 15px var(--sans); color: var(--ink-3); }
@@ -448,5 +454,51 @@ div.easier .link { color: var(--paper-accent); }
 .breather-tag { margin: 0 2px 12px; font: italic 500 17px var(--serif); color: var(--ink-2); }
 .sub.first { margin-top: 0; }
 .proof-easy { margin: -12px 0 14px; font: italic 500 16px var(--serif); color: #ffb08f; }
-.level .link { min-height: 0; padding: 0 0 0 4px; font-weight: 400; color: var(--ink-2); }
+/* a 44px tap area that doesn't push the line apart */
+.level .link { min-height: 44px; margin-block: -12px; padding: 0 2px 0 4px; font-weight: 400; color: var(--ink-2); }
 .deck-sheet p { line-height: 1.5; }
+
+/* ---------- foil: earned by how you did it, found out on the flip ---------- */
+.kcard.foil .kcard-front {
+  background:
+    linear-gradient(var(--ang, 120deg), #ffb3e1, #a6f4ff 25%, #fff3a6 50%, #b5ffcf 75%, #ffb3e1) 0 0 / 200% 200%,
+    linear-gradient(145deg, color-mix(in srgb, var(--rc) 90%, white), var(--rc) 40%, color-mix(in srgb, var(--rc) 60%, black));
+  background-blend-mode: hard-light, normal;
+  box-shadow: 0 25px 50px -20px rgba(0,0,0,.9), 0 0 0 1px rgba(255,255,255,.35) inset;
+}
+.stage .kcard.foil .kcard-front { animation: foil-drift 6s ease-in-out infinite alternate; }
+@keyframes foil-drift { to { background-position: 100% 100%, 0 0; } }
+.kcard.foil .holo { opacity: .4; background:
+    linear-gradient(115deg, transparent 20%, rgba(255,255,255,.6) calc(var(--mx, 50%) - 8%), transparent calc(var(--mx, 50%) + 8%)),
+    linear-gradient(var(--ang, 120deg), #ff00c8 0%, #00e5ff 25%, #fff200 50%, #00ff6a 75%, #ff00c8 100%);
+  background-size: 100% 100%, 300% 300%; background-position: 0 0, var(--mx, 50%) var(--my, 50%); }
+.kcard.foil.mid .holo { opacity: .28; }
+.kf-foil { margin-left: 6px; padding: 1px 6px; border-radius: 4px; color: #171310; letter-spacing: .08em;
+  background: linear-gradient(100deg, #ffb3e1, #a6f4ff, #fff3a6, #b5ffcf); }
+.kf-planned i { font-style: normal; }
+.kf-planned .fin, .kf-foil { transition: opacity .5s var(--ease-out), filter .5s var(--ease-out); }
+/* kept back until the seal is down */
+.kcard.dev-fin .kcard-front { background: linear-gradient(145deg, color-mix(in srgb, var(--rc) 90%, white), var(--rc) 40%, color-mix(in srgb, var(--rc) 60%, black)); animation: none; box-shadow: 0 25px 50px -20px rgba(0,0,0,.9), 0 0 0 1px rgba(255,255,255,.15) inset; }
+.kcard.dev-fin .holo { opacity: 0; }
+.kcard.dev-fin .fin, .kcard.dev-fin .kf-planned i, .kcard.dev-fin .kf-foil { opacity: 0; filter: blur(4px); }
+.stage .kcard.foiling .holo { animation: foil-sweep 1.2s var(--ease-out); }
+@keyframes foil-sweep { from { background-position: 0 0, 0% 0%; opacity: .8; } to { background-position: 0 0, 100% 100%; } }
+@media (prefers-reduced-motion: reduce) { .stage .kcard.foiling .holo, .stage .kcard.foil .kcard-front { animation: none; } }
+
+/* ---------- Day Zero, still a wish ---------- */
+.kcard.wish { display: block; aspect-ratio: 5 / 7; }
+.wish-frame { display: flex; flex-direction: column; height: 100%; border-radius: 12px; border: 1.5px dashed color-mix(in srgb, var(--accent) 55%, var(--line)); background: var(--bg-2); padding: 0 0 10px; }
+.wish-frame .kf-top { padding: 8px 10px 4px; }
+.wish-frame .kf-no { color: var(--accent); }
+.wish-text { flex: 1; display: grid; place-items: center; padding: 8px 12px; text-align: center; font: italic 500 17px/1.25 var(--serif); color: var(--ink-2); text-wrap: balance; }
+.wish-foot { padding: 0 10px; font-size: 12px; line-height: 1.3; color: var(--ink-3); text-align: center; }
+.notice.zero.compact { display: flex; padding-right: 52px; }
+.notice.zero.compact .link { display: inline-flex; min-height: 44px; margin-block: -12px; margin-left: 2px; }
+
+/* ---------- deck: what's above your level waits ---------- */
+.deck-item.above { background: var(--bg-2); }
+.deck-item.above .t, .deck-item.above .s { color: var(--ink-2); }
+
+/* ---------- card viewer: delete steps back ---------- */
+.stage-actions .link.danger { flex-basis: 100%; justify-content: center; font-weight: 400; color: #ffb4a0; }
+.sheet-panel > .link { margin: -4px 0 6px; font-weight: 400; color: var(--ink-2); }
