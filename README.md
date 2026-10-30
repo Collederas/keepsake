@@ -1,6 +1,6 @@
 # Keepsake
 
-**Real-life challenges at your own pace, one a week by default. Every one you complete becomes a collectible card in the book of your life.**
+**Do something worth telling.** One real-life challenge a week, a little braver each time. Do it, and it becomes a collectible card in the book of your life. (Prefer more? There's also a few a week, or every day.)
 
 Go to an open mic. Take a bus to nowhere. Ask a stranger over 60 for the best advice they ever got. When you've done it, add a photo and one line about what happened, and watch a live preview of your card. Then tap the face-down card. It charges up through the rarity tiers, which stay hidden until this moment, and flips. Your photo develops like a print, your words ink in, and a wax seal presses into the corner. Epic and Legendary cards also get a burst of light and confetti. The card lands in your Book, numbered, dated and kept forever. You can edit its words later or export it as a high-resolution image to share.
 

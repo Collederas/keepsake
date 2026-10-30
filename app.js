@@ -738,7 +738,7 @@ function onboardingHTML() {
   const step = state.onboardStep;
   if (step === 0) return `
     <section class="onboard">
-      <h2>Real-life challenges, at your pace.</h2>
+      <h2>Do something worth telling.</h2>
       <ul class="how">
         <li>Go do a challenge, out in the real world.</li>
         <li>Come back and add a photo or a line.</li>
