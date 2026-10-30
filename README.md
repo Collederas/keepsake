@@ -48,6 +48,7 @@ It also works on GitHub Pages as is. All data stays on the device: cards are sto
   "id": "open-mic",
   "title": "Take the Mic",
   "category": "creative",      // social | body | creative | explore | mind | kindness
+  "theme": "stage",            // what kind of thing it is; the picker never serves the same kind twice in a row
   "courage": 5,                // 1–5 → card rarity: Common, Uncommon, Rare, Epic, Legendary
   "solo": true,
   "cost": "free",              // free | $ | $$
@@ -56,8 +57,12 @@ It also works on GitHub Pages as is. All data stays on the device: cards are sto
   "why": "Nothing rewires your fear thermostat like being seen on purpose.",
   "easier": "Go as audience and talk to one performer afterwards.",  // drops the card one rarity
   "safety": null
+  // optional: "tiny": true (busy days), "starter": true (first challenges for new people),
+  // "secret": true + "unlock" (hidden until earned), "retired": true (kept only so earned cards still show)
 }
 ```
+
+The picker keeps things varied: after a swap, and for the next few weeks, it avoids the theme of anything you just passed on or did recently, and it avoids the same category twice in a row. New people start from a handpicked set of strong first challenges.
 
 ## Why this, and not another challenge app (research, Oct 2026)
 
