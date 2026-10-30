@@ -1655,7 +1655,7 @@ async function renderCardCanvas(card) {
   x.fillText(isZero(card) ? 'DAY ZERO' : `${ch.secret ? 'SECRET · ' : ''}${CATS[ch.category].label.toUpperCase()}`, 64, 92);
   x.textAlign = 'right';
   x.fillStyle = r.color;
-  x.font = '700 34px Fraunces, Georgia, serif';
+  x.font = '700 34px Literata, Georgia, serif';
   x.fillText(`#${pad(card.no)}`, W - 64, 92);
 
   const px = 54, py = 120, pw = W - 108, ph = 880;
@@ -1671,7 +1671,7 @@ async function renderCardCanvas(card) {
     const pg = x.createRadialGradient(px + pw * 0.3, py + ph * 0.2, 10, px + pw * 0.5, py + ph * 0.5, ph);
     pg.addColorStop(0, r.color); pg.addColorStop(1, '#171310');
     x.fillStyle = pg; x.fillRect(px, py, pw, ph);
-    x.font = 'italic 900 560px Fraunces, Georgia, serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.font = 'italic 900 560px Literata, Georgia, serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
     x.fillStyle = 'rgba(255,255,255,0.8)';
     x.fillText((card.story || ch.title).trim().charAt(0).toUpperCase(), px + pw / 2, py + ph / 2 + 40);
     x.textBaseline = 'alphabetic';
@@ -1686,19 +1686,19 @@ async function renderCardCanvas(card) {
 
   x.textAlign = 'left';
   x.fillStyle = '#f4efe6';
-  x.font = '900 72px Fraunces, Georgia, serif';
+  x.font = '900 72px Literata, Georgia, serif';
   let y = py + ph + 92;
   for (const line of wrap(x, ch.title, W - 128, 2)) { x.fillText(line, 64, y); y += 74; }
   if (card.story) {
     x.fillStyle = '#d2c9bd';
-    x.font = 'italic 500 38px Fraunces, Georgia, serif';
+    x.font = 'italic 500 38px Literata, Georgia, serif';
     y += 4;
     for (const line of wrap(x, `“${card.story}”`, W - 128, 2)) { x.fillText(line, 64, y); y += 48; }
   }
 
   if (card.planned || card.easier) {
     x.fillStyle = '#ffb08f';
-    x.font = 'italic 500 32px Fraunces, Georgia, serif';
+    x.font = 'italic 500 32px Literata, Georgia, serif';
     x.fillText([card.easier ? 'Easy version' : '', card.planned ? 'Planned and done' : ''].filter(Boolean).join(' · '), 64, H - 160);
   }
   x.fillStyle = 'rgba(255,255,255,0.08)';
@@ -1707,7 +1707,7 @@ async function renderCardCanvas(card) {
   x.fillStyle = r.color;
   x.fillText(isZero(card) ? 'WHERE IT STARTS' : `${'★'.repeat(card.rarity)}  ${r.name.toUpperCase()}`, 64, H - 72);
   x.textAlign = 'right';
-  x.font = '500 30px Fraunces, Georgia, serif';
+  x.font = '500 30px Literata, Georgia, serif';
   x.fillStyle = '#a0968a';
   x.fillText(`${fmtDate(card.date)}${card.place ? ' · ' + card.place : ''}`, W - 64, H - 72);
   return c;
@@ -1743,7 +1743,7 @@ async function renderStoryCanvas(card) {
   }
   try { await document.fonts.ready; } catch (e) { /* ignore */ }
   x.textBaseline = 'alphabetic';
-  x.font = '900 60px Fraunces, Georgia, serif';
+  x.font = '900 60px Literata, Georgia, serif';
   const wk = x.measureText('Keep').width, ws = x.measureText('sake').width;
   x.textAlign = 'left';
   x.fillStyle = '#f4efe6'; x.fillText('Keep', W / 2 - (wk + ws) / 2, 170);
@@ -1759,7 +1759,7 @@ async function renderStoryCanvas(card) {
   const y = cy + chh;
   x.textAlign = 'center';
   x.fillStyle = '#f4efe6';
-  x.font = '900 68px Fraunces, Georgia, serif';
+  x.font = '900 68px Literata, Georgia, serif';
   x.fillText(card.daredBy ? `Dared by ${card.daredBy}. Done.` : 'I did it.', W / 2, y + 130, W - 120);
   x.font = `400 38px ${SANS}`;
   x.fillStyle = '#d2c9bd';
