@@ -12,6 +12,7 @@ One card a day. The Deck is for browsing: you can swap any challenge in as today
 - **Reminders.** A morning nudge with the day's challenge and an optional 8pm check-in. There are two ways to get them:
   - **Notifications:** in browsers that support background checks (Chrome on Android, installed app), and while the app is open.
   - **A calendar file** with repeating events, which works everywhere and is always on time.
+- **When and where.** "Plan it" asks when (today or any day this week, at a time you choose) and where. Today then shows the plan as a sentence ("Tonight at 9:00 PM, at Café Lux."). The reminder moves to that exact time, and you can add the plan to your calendar or send it to a friend ("Hold me to it"). A challenge planned for another day becomes that day's challenge. Cards sealed from a plan say "Planned and done".
 - **Installable.** Keepsake is a web app you can add to your home screen (a PWA), and it works offline.
 - **Secret challenges.** 17 hidden challenges show in the Deck as locked cards with a hint, like hidden achievements. They unlock after a particular challenge (Take the Mic → Encore), 5 cards in one category, courage level 5, 25 cards, cards on 7 different days, a Legendary card, or a completed dare. A dare link can open a secret early. Their conditions live in the `unlock` field of `data/challenges.json`.
 - **Dares and Stories.** Every card can be shared as a 1080×1920 Story image, or as a dare link (`?dare=<challenge>&from=<name>`) that opens the same challenge for a friend. Cards record who dared you.
