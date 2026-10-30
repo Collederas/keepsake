@@ -278,7 +278,7 @@ function testerNoticeHTML() {
   if (backupDue()) return `
     <aside class="notice tester">
       <div><strong>Your cards only live on this phone.</strong>
-        <span class="notice-sub">Save a backup now and then, so a new phone or a cleared browser can't take them.</span>
+        <span class="notice-sub">Save a backup now and then.</span>
         <button class="btn" data-act="backup">Save a backup</button></div>
       <button class="icon-btn" data-act="backup-later" aria-label="Not now">${icon('close')}</button>
     </aside>`;
@@ -294,7 +294,7 @@ function testerNoticeHTML() {
 function statsSheetHTML() {
   return `
     <h2 class="proof-title">Share my stats</h2>
-    <p>This is everything that gets sent. Nothing you wrote, no photos, no names. It opens in your email so you can read it again before sending.</p>
+    <p>This is everything that gets sent. Nothing you wrote, no photos.</p>
     <pre class="stats-preview">${esc(statsText())}</pre>
     <div class="actions">
       <a class="btn primary big" href="${esc(mailto('Keepsake stats', statsText()))}" data-act="stats-sent">Send by email</a>
@@ -895,8 +895,8 @@ function settingsPage(page) {
     reminders: ['Reminders', `<div id="reminder-box">${reminderHTML()}</div>`],
     busy: ['Busy?', busySettingsHTML()],
     backup: ['Backup', `
-      <p>Your cards only live on this phone. A backup is one file with all of them, photos included, that you can restore on any phone.</p>
-      <p class="hint">${state.settings.lastBackup ? `Last backup: ${fmtDate(state.settings.lastBackup + 'T12:00')}.` : 'No backup yet.'}</p>
+      <p>A backup lets you restore your cards anywhere.</p>
+      ${state.settings.lastBackup ? `<p class="hint">Last one: ${fmtDate(state.settings.lastBackup + 'T12:00')}.</p>` : ''}
       <div class="actions">
         <button class="btn primary big" data-act="backup">Save a backup</button>
         <button class="btn ghost" data-act="restore">Restore a backup</button>
@@ -2495,7 +2495,7 @@ function bind() {
         const n = data.cards.filter(c => !isZero(c)).length;
         openSheet(`
           <h2 class="proof-title">Restore this backup?</h2>
-          <p>It's from ${fmtDate(data.made)}, with ${n} card${n === 1 ? '' : 's'}. It replaces everything on this phone, including cards made since then.</p>
+          <p>From ${fmtDate(data.made)}, ${n} card${n === 1 ? '' : 's'}. It replaces what's on this phone.</p>
           <div class="actions">
             <button class="btn primary big" data-act="restore-yes">Replace with the backup</button>
             <button class="btn ghost" data-close>Keep what's here</button>
