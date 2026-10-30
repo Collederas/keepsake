@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'keepsake-v9';
+const CACHE = 'keepsake-v10';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'data/challenges.json', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -142,7 +142,7 @@ async function maybeRemind() {
     } else {
       const variants = fresh && m.title
         ? (weekly
-          ? [`This week: ${m.title}. ${m.why || ''}`.trim(), `This week's one: ${m.title}.`, `Something for this week: ${m.title}.`]
+          ? [`This week: ${m.title}. ${m.why || ''}`.trim(), `This week: ${m.title}.`, `Something for this week: ${m.title}.`]
           : [`Today: ${m.title}. ${m.why || ''}`.trim(), `Today's one: ${m.title}.`, `Something for today: ${m.title}.`])
         : ["There's a new challenge waiting."];
       await show(weekly ? "This week's challenge" : "Today's challenge", variants[Math.floor(now / 864e5) % variants.length], 'keepsake-morning');

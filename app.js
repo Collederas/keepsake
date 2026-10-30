@@ -249,6 +249,16 @@ const newSecrets = () => {
   const done = earnedIds();
   return [...unlockedSecretIds()].filter(id => !done.has(id) && !state.settings.seenSecrets.includes(id));
 };
+// a locked secret points at what opens it
+function unlockLink(ch) {
+  const u = ch.unlock || {};
+  if (u.after) {
+    const next = u.after.find(id => !earnedIds().has(id));
+    if (next) return `<div class="actions"><button class="btn" data-open="${next}">Show me “${esc(state.byId.get(next).title)}”</button></div>`;
+  }
+  if (u.category) return `<div class="actions"><button class="btn" data-act="filter-cat" data-cat="${u.category}">Show ${CATS[u.category].label} challenges</button></div>`;
+  return '';
+}
 function updateDeckBadge() {
   $('.tab[data-screen="deck"]').classList.toggle('has-new', newSecrets().length > 0);
 }
@@ -330,13 +340,12 @@ function currentChallenge() {
 /* ================= rendering: challenge ================= */
 function questHTML(ch, { today: onToday = false, easy = false } = {}) {
   const courage = easy ? Math.max(1, ch.courage - 1) : ch.courage;
+  const goEasy = ch.tiny ? '' : `<details class="easier"><summary>Not feeling it? Try the easier version</summary><p>${esc(ch.easier)}</p>`;
   const pips = [1, 2, 3, 4, 5].map(i => `<i class="${i <= courage ? 'on' : ''}"></i>`).join('');
-  const easier = !onToday
-    ? `<details class="easier"><summary>Not feeling it? There's an easier version</summary><p>${esc(ch.easier)}</p></details>`
-    : easy
-      ? `<div class="easier"><button class="link" data-act="easy-off">Switch back to the full challenge</button></div>`
-      : `<details class="easier"><summary>Not feeling it? Try the easier version</summary><p>${esc(ch.easier)}</p>
-          <button class="btn" data-act="easy-on">Go easy today</button></details>`;
+  const easier = ch.tiny ? ''
+    : !onToday ? `${goEasy}</details>`
+    : easy ? `<div class="easier"><button class="link" data-act="easy-off">Switch back to the full challenge</button></div>`
+    : `${goEasy}<button class="btn" data-act="easy-on">Go easy this time</button></details>`;
   return `
   <article class="quest${easy ? ' is-easy' : ''}">
     <div class="quest-head">
@@ -346,7 +355,7 @@ function questHTML(ch, { today: onToday = false, easy = false } = {}) {
     <h2>${esc(ch.title)}</h2>
     <p class="prompt">${esc(easy ? ch.easier : ch.prompt)}</p>
     <p class="why">${esc(ch.why)}</p>
-    <p class="meta">${fmtMinutes(ch.minutes)} · ${COST[ch.cost]} · ${ch.solo ? 'Solo' : 'Bring someone'}</p>
+    <p class="meta">${easy ? 'Shorter' : fmtMinutes(ch.minutes)} · ${COST[ch.cost]} · ${ch.solo ? 'Solo' : 'Bring someone'}</p>
     ${ch.safety ? `<div class="safety">${esc(ch.safety)}</div>` : ''}
     ${easier}
   </article>`;
@@ -361,10 +370,11 @@ function todayActions(ch) {
   } else {
     const prev = d.idx > 0 ? `<button class="btn ghost" data-act="prev-pick">${icon('prev')} Previous</button>` : '';
     const label = d.idx < d.shown.length - 1 ? 'Next' : left > 0 ? `Swap · ${left} left` : 'No swaps left';
+    const aria = d.idx < d.shown.length - 1 ? 'Next' : left > 0 ? `Swap, ${left} left` : 'No swaps left';
     const disabled = d.idx >= d.shown.length - 1 && left <= 0;
-    secondary = `${prev}<button class="btn ghost" data-act="reroll" ${disabled ? 'disabled' : ''}>${icon('swap')} ${label}</button>`;
+    secondary = `${prev}<button class="btn ghost" data-act="reroll" aria-label="${aria}" ${disabled ? 'disabled' : ''}>${icon('swap')} ${label}</button>`;
   }
-  const plan = todayPlan() ? '' : `<button class="btn ghost" data-act="plan" data-id="${ch.id}">${icon('calendar')} Plan it</button>`;
+  const plan = todayPlan() || ch.tiny ? '' : `<button class="btn ghost" data-act="plan" data-id="${ch.id}">${icon('calendar')} Plan it</button>`;
   return `
   <div class="actions">
     <button class="btn primary big" data-act="done" data-id="${ch.id}">I did it</button>
@@ -398,7 +408,7 @@ function cardHTML(card, url, cls = '', tag = 'div') {
           <span class="kf-body">
             <span class="kf-title">${esc(ch.title)}</span>
             ${story}
-            ${card.planned ? '<span class="kf-planned">Planned and done</span>' : ''}
+            ${card.planned || card.easier ? `<span class="kf-planned">${[card.easier ? 'Easy version' : '', card.planned ? 'Planned and done' : ''].filter(Boolean).join(' · ')}</span>` : ''}
           </span>
           <span class="kf-foot">
             <span class="kf-rarity">${footLeft}</span>
@@ -474,13 +484,18 @@ function renderToday() {
       <button class="icon-btn" data-act="dismiss-prev" aria-label="Dismiss">${icon('close')}</button>
     </aside>` : '';
 
+  if (state.welcomeBack === 'busy' && !d.earned && !d.busyPeek) {
+    d.custom = pickTiny();
+    d.busyPeek = true;
+    saveDay();
+  }
   const welcome = state.welcomeBack && !isBusy() ? `
     <aside class="notice welcome">
       <div><strong>Good to see you.</strong>
-        ${state.welcomeBack === 'busy' ? '<span class="notice-sub">Back to it? Here\'s an easy one to start.</span>' : ''}
+        ${state.welcomeBack === 'busy' ? '<span class="notice-sub">Here\'s an easy one to start.</span>' : '<span class="notice-sub">Want to start with something small?</span>'}
         <span class="notice-actions">
-          <button class="btn primary" data-act="start-small">Start small</button>
-          <button class="btn" data-act="dismiss-welcome">Show me ${W().cur}</button>
+          ${state.welcomeBack === 'busy' ? '' : '<button class="btn primary" data-act="start-small">Start small</button>'}
+          <button class="btn" data-act="${state.welcomeBack === 'busy' ? 'back-to-main' : 'dismiss-welcome'}">Show me ${W().cur} challenge</button>
         </span>
       </div>
     </aside>` : '';
@@ -497,6 +512,19 @@ function renderToday() {
         </div>
         <p class="hint">No reminders ${busyUntilText()}.</p>
       </section>`;
+    syncReminder();
+    return;
+  }
+
+  if (isBusy() && !d.earned && d.busyPeek) {
+    const tiny = currentChallenge();
+    el.innerHTML = `${header}
+      <p class="breather-tag">Taking a breather. This one's tiny.</p>
+      ${questHTML(tiny)}
+      <div class="actions">
+        <button class="btn primary big" data-act="done" data-id="${tiny.id}">I did it</button>
+        <button class="btn ghost" data-act="busy-unpeek">Not now</button>
+      </div>`;
     syncReminder();
     return;
   }
@@ -532,13 +560,12 @@ function renderToday() {
 }
 function courageText() {
   const { cap, count, need } = courageProgress();
-  return cap >= 5
-    ? "Courage level 5 · everything's open"
-    : `Courage level ${cap} · ${need - count} more level-${cap} challenge${need - count === 1 ? '' : 's'} to level up`;
+  const n = ['No', 'One', 'Two', 'Three'][need - count] || String(need - count);
+  return cap >= 5 ? "Courage 5. Everything's open." : `Courage ${cap}. ${n} more like this and bolder ones open up.`;
 }
 function courageHTML() {
   const { cap, count, need } = courageProgress();
-  return `<div class="level"><span>${courageText()}</span><span class="bar" aria-hidden="true"><i style="width:${cap >= 5 ? 100 : (count / need) * 100}%"></i></span></div>`;
+  return `<div class="level"><span>${courageText()} <button class="link" data-act="help">How this works</button></span><span class="bar" aria-hidden="true"><i style="width:${cap >= 5 ? 100 : (count / need) * 100}%"></i></span></div>`;
 }
 
 /* ================= onboarding + settings ================= */
@@ -640,13 +667,13 @@ function installHTML() {
 function settingsHTML() {
   return `
     <h2 class="proof-title">Settings</h2>
+    <h3 class="sub first">Busy?</h3>
+    ${busySettingsHTML()}
     <label class="field"><span class="field-label">Your first name <span class="opt">So friends know who dared them</span></span>
       <input id="set-name" maxlength="24" value="${esc(state.settings.name)}" autocomplete="given-name"></label>
     <h3 class="sub">Challenges</h3>
     ${prefsHTML()}
-    <p class="hint">Kicks in from your next challenge. ${courageText()}.</p>
-    <h3 class="sub">Busy?</h3>
-    ${busySettingsHTML()}
+    <p class="hint">Kicks in from your next challenge.</p>
     <h3 class="sub">Reminders</h3>
     <div id="reminder-box">${reminderHTML()}</div>
     ${installHTML() ? `<h3 class="sub">App</h3>${installHTML()}` : ''}`;
@@ -769,7 +796,7 @@ function calendarFile() {
     ...event('morning', r.time, `${W().Cur} Keepsake challenge`, `Open Keepsake to see ${W().cur} challenge:`),
     ...(weekly()
       ? event('thursday', r.time, 'Keepsake: still up for it this week?', "No rush. Here's this week's challenge:", 'RRULE:FREQ=WEEKLY;BYDAY=TH')
-      : r.evening ? event('evening', EVENING_TIME, 'Keepsake: did you do it?', `There's still time to do ${W().cur} challenge:`) : []),
+      : r.evening ? event('evening', EVENING_TIME, 'Keepsake: still up for it?', "Tomorrow's fine too. Here's the challenge:") : []),
     'END:VCALENDAR',
   ];
   download(new Blob([lines.join('\r\n')], { type: 'text/calendar' }), 'keepsake-reminders.ics');
@@ -792,7 +819,8 @@ function fmtTime(hhmm) {
 }
 function dayPhrase(date, time) {
   const k = dayKey();
-  if (date === k) return Number(time.split(':')[0]) >= 18 ? 'Tonight' : 'Today';
+  const h = Number(time.split(':')[0]);
+  if (date === k) return h >= 20 ? 'Tonight' : h >= 17 ? 'This evening' : 'Today';
   if (date === dayKey(addDays(new Date(), 1))) return 'Tomorrow';
   return `On ${new Date(date + 'T12:00').toLocaleDateString(undefined, { weekday: 'long' })}`;
 }
@@ -813,8 +841,15 @@ function planSheetHTML(ch) {
   const now = new Date();
   const hour = now.getHours();
   const days = [];
-  for (let i = d.earned ? 1 : 0; i < 7; i++) days.push(dayKey(addDays(now, i)));
-  const defaultDate = existing ? existing.date : hour >= 21 || d.earned ? days[d.earned ? 0 : 1] : days[0];
+  if (weekly()) {
+    // on a weekly rhythm: the rest of this week, or next week once this week's is done
+    const start = d.earned ? addDays(new Date(weekStart() + 'T12:00'), 7) : now;
+    const end = d.earned ? addDays(start, 6) : new Date(periodEnd() + 'T12:00');
+    for (let x = new Date(start); dayKey(x) <= dayKey(end); x = addDays(x, 1)) days.push(dayKey(x));
+  } else {
+    for (let i = d.earned ? 1 : 0; i < 7; i++) days.push(dayKey(addDays(now, i)));
+  }
+  const defaultDate = existing && days.includes(existing.date) ? existing.date : hour >= 21 && !d.earned && days[1] ? days[1] : days[0];
   const defaultTime = existing ? existing.time : hour < 18 || hour >= 21 ? '18:00' : '21:00';
   const dayLabel = k => k === dayKey() ? 'Today' : k === dayKey(addDays(now, 1)) ? 'Tomorrow'
     : new Date(k + 'T12:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
@@ -840,7 +875,7 @@ function planSheetHTML(ch) {
       <input id="plan-ifthen" maxlength="80" value="${esc(existing ? existing.ifThen || '' : '')}" ${existing && existing.ifThen ? 'data-edited="1"' : ''} autocomplete="off"></label>
     <p class="plan-preview" id="plan-preview" aria-live="polite"></p>
     <div class="actions">
-      <button class="btn primary big" data-act="plan-commit" data-id="${ch.id}">Lock it in</button>
+      <button class="btn primary big" data-act="plan-commit" data-id="${ch.id}">That's the plan</button>
       <div class="actions-row">
         <button class="btn" data-act="plan-calendar" data-id="${ch.id}">${icon('calendar')} Add to calendar</button>
         <button class="btn" data-act="plan-tell" data-id="${ch.id}">${icon('share')} Tell a friend</button>
@@ -891,7 +926,9 @@ function commitPlan(p) {
   saveDay();
   closeDeckSheets();
   show('today');
-  toast(`Planned: ${planSentence(p)}`);
+  const t = fmtTime(p.time).replace(':00', '');
+  const day = p.date === dayKey() ? '' : ` ${dayPhrase(p.date, p.time).replace(/^On /, 'on ')}`;
+  toast(`See you${p.where ? ` at ${p.where}` : ''}${day} at ${t}.`);
 }
 function cancelPlan(id) {
   savePlans(plans().filter(p => p.id !== id));
@@ -931,7 +968,7 @@ function planBlockHTML(ch) {
       <p>${esc(planSentence(p))}</p>
       ${ifLine(p) ? `<p class="plan-if">${esc(ifLine(p))}</p>` : ''}
       <span class="plan-links"><button class="link" data-act="plan" data-id="${ch.id}">Change</button> · <button class="link" data-act="plan-cancel" data-id="${ch.id}">Cancel plan</button>${
-        p.obstacle === 'tired' && !isEasy(today()) ? ' · <button class="link" data-act="easy-on">Go easy today</button>' : ''}${
+        p.obstacle === 'tired' && !isEasy(today()) ? ' · <button class="link" data-act="easy-on">Go easy this time</button>' : ''}${
         p.obstacle === 'forget' ? ` · <button class="link" data-act="plan-calendar-saved" data-id="${ch.id}">Add to calendar</button>` : ''}</span>
     </aside>`;
 }
@@ -986,7 +1023,7 @@ function renderDeck() {
   const filters = [['all', 'All'], ['todo', 'To do'], ['secret', 'Secret'], ...Object.entries(CATS).map(([k, v]) => [k, v.label])];
   const hidden = state.challenges.filter(c => !isUnlocked(c)).length;
   el.innerHTML = `
-    <header class="topbar"><h1 class="logo">The Deck</h1><span class="topbar-meta">${done.size} of ${state.challenges.length - hidden} earned${hidden ? ` · ${hidden} secret` : ''}</span></header>
+    <header class="topbar"><h1 class="logo">The Deck</h1><span class="topbar-meta">${realCards().length} of ${state.challenges.length - hidden} done${hidden ? ` · ${hidden} secret` : ''}</span></header>
     <label class="sr-only" for="deck-search">Search challenges</label>
     <input class="search" id="deck-search" type="search" placeholder="Search challenges" value="${esc(state.deckQuery)}" autocomplete="off">
     <div class="filters" role="group" aria-label="Filter">${filters.map(([k, l]) => `<button class="filter" data-filter="${k}" aria-pressed="${k === state.deckFilter}">${l}</button>`).join('')}</div>
@@ -1034,7 +1071,7 @@ function deckActions(ch) {
   const dare = `<button class="btn ghost big" data-act="plan" data-id="${ch.id}">${icon('calendar')} ${planFor(ch.id) ? 'Change plan' : 'Plan it'}</button>`
     + `<button class="btn ghost big" data-act="dare-friend" data-id="${ch.id}">${icon('share')} Dare a friend</button>`;
   if (card) return `<div class="actions"><button class="btn big" data-view="${card.id}">See your card</button><button class="btn ghost big" data-act="dare-friend" data-id="${ch.id}">${icon('share')} Dare a friend</button></div>`;
-  if (d.earned || fewCapped()) return `<div class="actions">${dare}</div><p class="sheet-note">You've done ${fewCapped() ? 'three this week' : W().cur}. Come back ${fewCapped() ? 'on Monday' : W().next} and swap this one in.</p>`;
+  if (d.earned || fewCapped()) return `<div class="actions">${dare}</div><p class="sheet-note">You've done ${fewCapped() ? 'three this week' : weekly() ? 'one this week' : "today's"}. Save this one for ${fewCapped() || weekly() ? 'next week' : 'tomorrow'}? Plan it.</p>`;
   if (currentId(d) === ch.id) return `<div class="actions"><button class="btn primary big" data-act="done" data-id="${ch.id}">I did it</button>${dare}</div><p class="sheet-note">This is ${W().cur} challenge.</p>`;
   return `<div class="actions"><button class="btn primary big" data-act="pick" data-id="${ch.id}">Do this one ${W().now}</button>${dare}</div>
     <p class="sheet-note">${W().one}, so this swaps out ${W().cur} challenge.</p>`;
@@ -1139,6 +1176,7 @@ async function openProof(challengeId, { kind = 'today', edit = null, easy = fals
   $('#story-input').value = edit ? edit.story : '';
   $('#place-input').value = edit ? edit.place : '';
   $('#upgrade-input').checked = false;
+  $('#proof-easy').hidden = !!edit || !easy;
   $('#upgrade-row').hidden = !!edit || !easy || ch.courage <= 1;
   $('#seal-btn').textContent = edit ? 'Save changes' : 'Make my card';
   $('#photo-input').value = '';
@@ -1202,7 +1240,7 @@ async function seal() {
     id: uid(),
     no: state.cards.reduce((m, c) => Math.max(m, c.no), 0) + 1,
     challengeId: ch.id,
-    rarity: easier ? ch.courage - 1 : ch.courage,
+    rarity: ch.courage, // going easy is marked on the card, never graded down
     easier,
     story,
     place,
@@ -1210,7 +1248,7 @@ async function seal() {
     photo: !!p.blob,
     revealed: false,
     daredBy: dare && dare.id === ch.id ? (dare.from || 'a friend') : null,
-    planned: plans().some(x => x.id === ch.id && x.date <= today().date),
+    planned: plans().some(x => x.id === ch.id && x.date <= dayKey()),
   };
   savePlans(plans().filter(x => x.id !== ch.id)); // done early or on time, the plan is finished either way
   if (p.blob) photoOk = await putPhoto(card.id, p.blob);
@@ -1413,7 +1451,7 @@ async function startReveal(card, { from = 'book', levelUp = 0, unlocked = [] } =
   el.setAttribute('aria-label', 'Reveal your card');
   el.style.setProperty('--rc', RARITY[0].color);
   const hint = $('#stage-hint');
-  hint.textContent = 'Tap to flip your card';
+  hint.textContent = state.keyboard ? 'Press Enter to flip your card' : 'Tap to flip your card';
   hint.classList.add('pulse');
   run = { card, el, url, from, levelUp, unlocked, started: false, startedAt: 0, done: false };
   const myRun = run;
@@ -1505,7 +1543,7 @@ function finishReveal(rn) {
   saveCards();
   const ch = state.byId.get(card.challengeId);
   const news = [];
-  if (rn.levelUp) news.push(`Level up! You're at courage level ${rn.levelUp} now.`);
+  if (rn.levelUp) news.push("You're braver than you were. Harder ones are open now.");
   if (rn.unlocked.length === 1) news.push(`You unlocked a secret challenge: ${state.byId.get(rn.unlocked[0]).title}. It's in the Deck.`);
   if (rn.unlocked.length > 1) news.push(`You unlocked ${rn.unlocked.length} secret challenges. They're in the Deck.`);
   if (isZero(card)) news.push('Your first card. Now go get the next one.');
@@ -1539,9 +1577,9 @@ async function openViewer(card) {
   attachTilt(slot.firstElementChild);
   const actions = $('#stage-actions');
   actions.innerHTML = `
-    <button class="btn ghost danger" data-act="delete" data-id="${card.id}">Delete</button>
     <button class="btn" data-act="edit" data-id="${card.id}">Edit</button>
     <button class="btn" data-act="share" data-id="${card.id}">${icon('share')} Share</button>
+    <button class="btn ghost danger" data-act="delete" data-id="${card.id}">Delete</button>
     <button class="btn primary" data-act="close-stage">Close</button>`;
   actions.classList.add('show');
   $('[data-act="close-stage"]', actions).focus();
@@ -1658,10 +1696,10 @@ async function renderCardCanvas(card) {
     for (const line of wrap(x, `“${card.story}”`, W - 128, 2)) { x.fillText(line, 64, y); y += 48; }
   }
 
-  if (card.planned) {
+  if (card.planned || card.easier) {
     x.fillStyle = '#ffb08f';
     x.font = 'italic 500 32px Fraunces, Georgia, serif';
-    x.fillText('Planned and done', 64, H - 160);
+    x.fillText([card.easier ? 'Easy version' : '', card.planned ? 'Planned and done' : ''].filter(Boolean).join(' · '), 64, H - 160);
   }
   x.fillStyle = 'rgba(255,255,255,0.08)';
   x.fillRect(64, H - 128, W - 128, 2);
@@ -1801,6 +1839,32 @@ function onAction(t) {
       break;
     case 'claim-prev':
       if (d.prev) openProof(d.prev.id, { kind: 'prev', easy: !!d.prev.easy });
+      break;
+    case 'busy-unpeek':
+      d.busyPeek = false;
+      d.custom = null;
+      saveDay();
+      renderToday();
+      break;
+    case 'back-to-main':
+      d.custom = null;
+      d.busyPeek = false;
+      saveDay();
+      state.welcomeBack = null;
+      renderToday();
+      break;
+    case 'filter-cat':
+      closeDeckSheets();
+      state.deckFilter = t.dataset.cat;
+      state.deckQuery = '';
+      show('deck');
+      break;
+    case 'help':
+      openSheet(`
+        <h2 class="proof-title">How this works</h2>
+        <p><strong>Courage</strong> is how bold your challenges get. You start at 2. Do three challenges at your level and the next level opens up. Easy versions don't count toward it, but they still go in your Book.</p>
+        <p><strong>Card colours</strong> come from how much nerve a challenge takes, from Common (grey) to Legendary (gold). You find out which one you got when you flip the card.</p>
+        <p><strong>Secret challenges</strong> are the big ones. They open up as you go. The Deck shows what opens each one.</p>`, 'How this works');
       break;
     case 'zero-make':
       makeDayZero();
@@ -2043,6 +2107,7 @@ function bind() {
           ${icon('lock')}
           <h2>Secret challenge</h2>
           <p class="locked-hint">${esc(info.hint)}</p>
+          ${unlockLink(ch)}
           ${info.need > 1 ? `<div class="level"><span>${CATS[ch.category].label} · ${info.have} of ${info.need}</span><span class="bar" aria-hidden="true"><i style="width:${(info.have / info.need) * 100}%"></i></span></div>` : ''}
           <p class="sheet-note">Secret challenges are the big ones: weirder, harder, more personal. They open up as you go, or when a friend dares you.</p>
         </div>`, 'Secret challenge');
@@ -2118,7 +2183,9 @@ function bind() {
   $('#place-input').addEventListener('input', updateProof);
   $('#seal-btn').addEventListener('click', seal);
 
+  document.addEventListener('pointerdown', () => { state.keyboard = false; });
   document.addEventListener('keydown', e => {
+    if (e.key === 'Tab' || e.key === 'Enter') state.keyboard = true;
     const stageOpen = !$('#stage').hidden;
     if (e.key === 'Escape') {
       const over = document.querySelectorAll('.deck-sheet');

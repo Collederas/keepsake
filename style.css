@@ -221,7 +221,7 @@ button.kcard { border: 0; padding: 0; background: none; color: inherit; font: in
 .kcard.mid .seal .ico { width: 16px; height: 16px; }
 
 /* ---------- stage ---------- */
-.stage { position: fixed; inset: 0; z-index: 50; background: rgba(10, 8, 6, .95); display: grid; place-items: center; overflow: hidden; animation: fade .3s ease; }
+.stage { position: fixed; inset: 0; z-index: 50; background: rgba(10, 8, 6, .98); display: grid; place-items: center; overflow: hidden; animation: fade .3s ease; }
 #fx { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; }
 .sound-btn { position: absolute; top: calc(12px + env(safe-area-inset-top)); right: 12px; z-index: 4; background: rgba(255,255,255,.06); }
 .stage-inner { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 16px; }
@@ -326,8 +326,8 @@ button.kcard { border: 0; padding: 0; background: none; color: inherit; font: in
 .tab.active { color: var(--ink); background: var(--panel); }
 .tab.active .ico { color: var(--accent); }
 
-.toast { position: fixed; left: 50%; bottom: calc(92px + env(safe-area-inset-bottom)); transform: translate(-50%, 20px); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 999px; font-weight: 700; font-size: 14px; opacity: 0; pointer-events: none; transition: all .3s; z-index: 80; max-width: calc(100vw - 32px); text-align: center; }
-.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.toast { position: fixed; left: 16px; right: 16px; margin: 0 auto; width: fit-content; top: calc(14px + env(safe-area-inset-top)); transform: translateY(-16px); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 999px; font-weight: 700; font-size: 14px; opacity: 0; pointer-events: none; transition: all .3s; z-index: 80; max-width: calc(100vw - 32px); text-align: center; }
+.toast.show { opacity: 1; transform: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .screen, .sheet, .sheet-panel, .land, .stage { animation: none; }
@@ -367,11 +367,11 @@ button.kcard { border: 0; padding: 0; background: none; color: inherit; font: in
 .field input[type="time"] { width: auto; min-width: 128px; color-scheme: dark; font-variant-numeric: tabular-nums; }
 .reminder-ways { display: grid; gap: 10px; }
 .ok { margin: 0; color: #8ce8bd; font-weight: 700; }
-.link { border: 0; background: none; padding: 4px 2px; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; font-weight: 700; min-height: 32px; }
+.link { display: inline-flex; align-items: center; border: 0; background: none; padding: 4px 2px; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; font-weight: 700; min-height: 44px; }
 .install { margin-top: 16px; }
 
 /* ---------- secret challenges ---------- */
-.deck-item.locked { background: repeating-linear-gradient(135deg, var(--bg-2) 0 10px, var(--panel) 10px 20px); border-style: dashed; }
+.deck-item.locked { background: var(--bg-2); border-style: dashed; }
 .deck-item.locked .t { color: var(--ink-2); }
 .deck-item.locked .t .ico { width: 18px; height: 18px; color: var(--ink-3); }
 .deck-item.locked .s { font-style: italic; }
@@ -399,7 +399,7 @@ button.kcard { border: 0; padding: 0; background: none; color: inherit; font: in
 .plan-for { margin: -10px 0 16px; font: italic 500 18px var(--serif); color: var(--ink-2); }
 .plan-preview { margin: 4px 0 16px; padding: 12px 14px; border-radius: 12px; background: var(--panel); font: 700 19px/1.3 var(--serif); }
 .plan-preview::before { content: "Your plan: "; font: 400 15px var(--sans); color: var(--ink-3); }
-.seg.days > div { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.seg.days > div { display: flex; flex-wrap: wrap; gap: 6px; }
 .seg.days > div::-webkit-scrollbar { display: none; }
 .seg.days label { flex: none; }
 .seg.days span { min-width: 86px; padding: 6px 12px; }
@@ -439,6 +439,14 @@ div.easier .link { color: var(--paper-accent); }
 
 /* ---------- what might get in the way ---------- */
 .seg.chips > div { display: flex; flex-wrap: wrap; gap: 6px; }
-.seg.chips span { min-height: 40px; padding: 6px 14px; }
+.seg.chips span { min-height: 44px; padding: 6px 14px; }
 .plan-if { margin: 2px 0 4px !important; font: italic 500 16px/1.35 var(--serif) !important; color: var(--ink-2); }
 .seg legend .opt { display: inline; min-height: 0; padding: 0; border: 0; background: none; border-radius: 0; font-size: 15px; font-weight: 400; color: var(--ink-3); margin-left: 4px; }
+
+/* ---------- review fixes ---------- */
+.deck-sheet .sheet-panel { padding-top: 62px; }
+.breather-tag { margin: 0 2px 12px; font: italic 500 17px var(--serif); color: var(--ink-2); }
+.sub.first { margin-top: 0; }
+.proof-easy { margin: -12px 0 14px; font: italic 500 16px var(--serif); color: #ffb08f; }
+.level .link { min-height: 0; padding: 0 0 0 4px; font-weight: 400; color: var(--ink-2); }
+.deck-sheet p { line-height: 1.5; }
