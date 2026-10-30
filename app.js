@@ -31,7 +31,7 @@ const PREFS = {
 };
 // Day Zero: the first card, made during setup from something you've always wanted to try.
 // It lives outside the deck, so it never gets picked and never counts toward progress.
-const DAY_ZERO = { id: 'day-zero', title: 'Day Zero', category: 'zero', courage: 1, minutes: 1, cost: 'free', solo: true, prompt: '', why: '', easier: '' };
+const DAY_ZERO = { id: 'day-zero', title: 'Day Zero', category: 'zero', courage: 1, minutes: 1, cost: 'free', solo: true, prompt: '', why: '' };
 const ZERO_LOOK = { name: 'Day Zero', color: '#ff7a45', light: '#ffd2bf', dark: '#7a2c10' };
 const isZero = c => c.challengeId === DAY_ZERO.id;
 // Day Zero starts as an empty frame holding a wish, and turns into a real card the day you do it
@@ -50,7 +50,7 @@ const isFoil = card => !!(card.finishes && card.finishes.length);
 const realCards = () => state.cards.filter(c => !isZero(c));
 // what might get in the way: tap an option, get a suggested plan you can edit
 const OBSTACLES = [
-  ['tired', 'Too tired', "I'm too tired", 'do the easy version'],
+  ['tired', 'Too tired', "I'm too tired", 'go for ten minutes and see'],
   ['time', 'No time', 'I run out of time', 'move it to tomorrow'],
   ['weather', 'Weather', "the weather's bad", 'go anyway with a jacket'],
   ['nerves', 'I chicken out', 'I chicken out', 'do just the first step, then decide'],
@@ -256,7 +256,7 @@ function statsText() {
     `Busy right now: ${isBusy() ? 'yes' : 'no'}`,
     `Day Zero: ${!zero ? (state.settings.dayZeroDone ? 'skipped' : 'not yet') : zero.pending ? 'wish written, not done yet' : 'done'}`,
     `First card: ${cards.length ? `${daysBetween(start, dayKey(new Date(cards[0].date)))} days after first opening` : 'not yet'}`,
-    `Cards: ${cards.length} · courage ${courageProgress().cap} · easy ${cards.filter(c => c.easier).length} · foil ${cards.filter(isFoil).length} · planned ${cards.filter(c => c.planned).length} · dared ${cards.filter(c => c.daredBy).length} · with photo ${cards.filter(c => c.photo).length}`,
+    `Cards: ${cards.length} · courage ${courageProgress().cap} · foil ${cards.filter(isFoil).length} · planned ${cards.filter(c => c.planned).length} · dared ${cards.filter(c => c.daredBy).length} · with photo ${cards.filter(c => c.photo).length}`,
     `Errors: ${(stats.errors || []).join(' | ') || 'none'}`,
   ];
   // the whole email has to stay under ~1900 characters once encoded, or some mail apps drop it,
@@ -416,8 +416,6 @@ function updateDeckBadge() {
   $('.tab[data-screen="deck"]').classList.toggle('has-new', newSecrets().length > 0);
 }
 const currentId = d => d.custom || d.shown[d.idx];
-// going easy is decided upfront and only sticks to the challenge it was chosen for
-const isEasy = d => d.easyId === currentId(d);
 
 function today() {
   const key = periodKey();
@@ -425,7 +423,7 @@ function today() {
   if (old && old.idx == null) old.idx = old.shown.length - 1; // older saved shape
   if (!old || old.date !== key) {
     // a challenge finished just after the period ended can still be added to it
-    const prev = old && old.date === prevPeriodKey() && !old.earned ? { id: currentId(old), easy: isEasy(old) } : null;
+    const prev = old && old.date === prevPeriodKey() && !old.earned ? { id: currentId(old) } : null;
     state.day = { date: key, shown: [], idx: 0, custom: null, earned: null, prev };
     // a break that ran out ends quietly, with an easy start
     const b = state.settings.busyUntil;
@@ -501,26 +499,20 @@ function currentChallenge() {
 }
 
 /* ================= rendering: challenge ================= */
-function questHTML(ch, { today: onToday = false, easy = false } = {}) {
+function questHTML(ch) {
   const courage = ch.courage;
-  const goEasy = ch.tiny ? '' : `<details class="easier"><summary>Not feeling it? Try the easier version</summary><p>${esc(ch.easier)}</p>`;
   const pips = [1, 2, 3, 4, 5].map(i => `<i class="${i <= courage ? 'on' : ''}"></i>`).join('');
-  const easier = ch.tiny ? ''
-    : !onToday ? `${goEasy}</details>`
-    : easy ? `<div class="easier"><button class="link" data-act="easy-off">Switch back to the full challenge</button></div>`
-    : `${goEasy}<button class="btn" data-act="easy-on">Go easy this time</button></details>`;
   return `
-  <article class="quest${easy ? ' is-easy' : ''}">
+  <article class="quest">
     <div class="quest-head">
-      <span>${CATS[ch.category].label}${easy ? ' · <b class="easy-tag">Easy version</b>' : ''}</span>
+      <span>${CATS[ch.category].label}</span>
       <span class="courage" role="img" aria-label="Courage ${courage} of 5">Courage ${pips}</span>
     </div>
     <h2>${esc(ch.title)}</h2>
-    <p class="prompt">${esc(easy ? ch.easier : ch.prompt)}</p>
+    <p class="prompt">${esc(ch.prompt)}</p>
     <p class="why">${esc(ch.why)}</p>
-    <p class="meta">${easy ? 'Shorter' : fmtMinutes(ch.minutes)} · ${COST[ch.cost]} · ${ch.solo ? 'Solo' : 'Bring someone'}</p>
+    <p class="meta">${fmtMinutes(ch.minutes)} · ${COST[ch.cost]} · ${ch.solo ? 'Solo' : 'Bring someone'}</p>
     ${ch.safety ? `<div class="safety">${esc(ch.safety)}</div>` : ''}
-    ${easier}
   </article>`;
 }
 
@@ -559,6 +551,7 @@ function cardHTML(card, url, cls = '', tag = 'div') {
   const zero = isZero(card);
   const topLabel = zero ? 'DAY ZERO' : `${ch.secret ? 'SECRET · ' : ''}${CATS[ch.category].label.toUpperCase()}`;
   const footLeft = zero ? 'Where it starts' : r ? `${'★'.repeat(r)}<span class="rn"> ${RARITY[r].name}</span>${isFoil(card) ? '<span class="kf-foil">FOIL</span>' : ''}` : '';
+  // cards made back when there was an easy version keep their mark
   const marks = [card.easier ? '<span>Easy version</span>' : '', ...finishLabels(card).map(l => `<span class="fin">${esc(l)}</span>`)].filter(Boolean);
   return `
   <${tag} class="kcard r${r}${zero && r ? ' kzero' : ''}${isFoil(card) && r ? ' foil' : ''} ${cls}" data-card="${card.id || ''}">
@@ -733,7 +726,7 @@ function renderToday() {
   } else {
     const ch = currentChallenge();
     const daredBy = d.dare && d.dare.id === ch.id ? `<p class="dared-by">Dared by ${esc(d.dare.from || 'a friend')}</p>` : '';
-    el.innerHTML = `${header}${welcome}${zeroNote}${dareNote}${prevNote}${courageHTML()}${daredBy}${planBlockHTML(ch)}${questHTML(ch, { today: true, easy: isEasy(d) })}${todayActions(ch)}${upcomingHTML()}`;
+    el.innerHTML = `${header}${welcome}${zeroNote}${dareNote}${prevNote}${courageHTML()}${daredBy}${planBlockHTML(ch)}${questHTML(ch)}${todayActions(ch)}${upcomingHTML()}`;
   }
   syncReminder();
 }
@@ -809,7 +802,7 @@ function dayZeroHTML(inline = false) {
 function makeDayZero() {
   const text = ($('#zero-input').value || '').trim().slice(0, 80);
   if (!text) return;
-  const card = { id: uid(), no: 0, challengeId: DAY_ZERO.id, rarity: 1, easier: false, wish: text, story: '', place: '', date: new Date().toISOString(), photo: false, pending: true };
+  const card = { id: uid(), no: 0, challengeId: DAY_ZERO.id, rarity: 1, wish: text, story: '', place: '', date: new Date().toISOString(), photo: false, pending: true };
   state.cards = state.cards.filter(c => !isZero(c));
   state.cards.push(card);
   saveCards();
@@ -1058,7 +1051,7 @@ function dayPhrase(date, time) {
   return `On ${new Date(date + 'T12:00').toLocaleDateString(undefined, { weekday: 'long' })}`;
 }
 const planSentence = p => `${dayPhrase(p.date, p.time)} at ${fmtTime(p.time)}${p.where ? `, at ${p.where}` : ''}.`;
-// "If I'm too tired, I'll do the easy version." from the obstacle the user picked or wrote
+// "If I'm too tired, I'll go for ten minutes and see." from the obstacle the user picked or wrote
 function ifLine(p) {
   if (!p || !p.obstacle || !p.ifThen) return '';
   const o = OBSTACLES.find(x => x[0] === p.obstacle);
@@ -1201,7 +1194,6 @@ function planBlockHTML(ch) {
       <p>${esc(planSentence(p))}</p>
       ${ifLine(p) ? `<p class="plan-if">${esc(ifLine(p))}</p>` : ''}
       <span class="plan-links"><button class="link" data-act="plan" data-id="${ch.id}">Change</button>${
-        p.obstacle === 'tired' && !isEasy(today()) ? '<button class="link" data-act="easy-on">Go easy this time</button>' : ''}${
         p.obstacle === 'forget' ? `<button class="link" data-act="plan-calendar-saved" data-id="${ch.id}">Add to calendar</button>` : ''}<button class="link quiet" data-act="plan-cancel" data-id="${ch.id}">Cancel plan</button></span>
     </aside>`;
 }
@@ -1406,18 +1398,15 @@ function openSheet(html, label, { over = false } = {}) {
 const closeDeckSheets = () => document.querySelectorAll('.deck-sheet').forEach(s => s.remove());
 
 /* ================= proof flow ================= */
-async function openProof(challengeId, { kind = 'today', edit = null, easy = false } = {}) {
+async function openProof(challengeId, { kind = 'today', edit = null } = {}) {
   const ch = state.byId.get(challengeId);
   if (!edit) count('proof-opened');
-  state.pending = { challengeId, kind, edit, easy, blob: null, keepPhoto: !!(edit && edit.photo), previewUrl: null, ownUrl: false, opener: document.activeElement };
+  state.pending = { challengeId, kind, edit, blob: null, keepPhoto: !!(edit && edit.photo), previewUrl: null, ownUrl: false, opener: document.activeElement };
   if (edit && edit.photo) state.pending.previewUrl = await photoUrl(edit);
   const wish = kind === 'zero' && state.cards.find(isWish);
   $('#proof-title').textContent = edit ? `Edit card #${pad(edit.no)}` : wish ? wish.wish : ch.title;
   $('#story-input').value = edit ? edit.story : '';
   $('#place-input').value = edit ? edit.place : '';
-  $('#upgrade-input').checked = false;
-  $('#proof-easy').hidden = !!edit || !easy;
-  $('#upgrade-row').hidden = !!edit || !easy || ch.courage <= 1;
   $('#seal-btn').textContent = edit ? 'Save changes' : 'Make my card';
   $('#photo-input').value = '';
   updateProof();
@@ -1485,7 +1474,6 @@ async function seal() {
     return;
   }
 
-  const easier = p.easy && !$('#upgrade-input').checked && ch.courage > 1;
   const dare = today().dare;
   const capBefore = courageProgress().cap;
   const planned = plans().some(x => x.id === ch.id && x.date <= dayKey());
@@ -1502,8 +1490,7 @@ async function seal() {
     id: uid(),
     no: state.cards.reduce((m, c) => Math.max(m, c.no), 0) + 1,
     challengeId: ch.id,
-    rarity: ch.courage, // going easy is marked on the card, never graded down
-    easier,
+    rarity: ch.courage,
     story,
     place,
     date: new Date().toISOString(),
@@ -2121,10 +2108,10 @@ function onAction(t) {
     case 'done':
       if (d.earned || fewCapped()) return;
       closeDeckSheets();
-      openProof(t.dataset.id, { kind: 'today', easy: isEasy(d) && currentId(d) === t.dataset.id });
+      openProof(t.dataset.id, { kind: 'today' });
       break;
     case 'claim-prev':
-      if (d.prev) openProof(d.prev.id, { kind: 'prev', easy: !!d.prev.easy });
+      if (d.prev) openProof(d.prev.id, { kind: 'prev' });
       break;
     case 'busy-unpeek':
       d.busyPeek = false;
@@ -2149,7 +2136,7 @@ function onAction(t) {
       count('help');
       openSheet(`
         <h2 class="proof-title">How this works</h2>
-        <p><strong>Courage</strong> is how bold your challenges get. You start at 2. Three at your level opens the next. Easy versions don't count.</p>
+        <p><strong>Courage</strong> is how bold your challenges get. You start at 2. Three at your level opens the next.</p>
         <p><strong>Colours</strong> show how much nerve it took, from Common (grey) to Legendary (gold).</p>
         <p><strong>Foil</strong> depends on how you did it. You find out when you flip.</p>
         <p><strong>Secret challenges</strong> open up as you go. The Deck shows what opens each one.</p>`, 'How this works');
@@ -2208,17 +2195,6 @@ function onAction(t) {
       if (p) planCalendarFile(p);
       break;
     }
-    case 'easy-on':
-      count('go-easy');
-      d.easyId = currentId(d);
-      saveDay();
-      renderToday();
-      break;
-    case 'easy-off':
-      d.easyId = null;
-      saveDay();
-      renderToday();
-      break;
     case 'dismiss-prev':
       d.prev = null;
       saveDay();

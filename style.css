@@ -107,9 +107,6 @@ p, li { text-wrap: pretty; }
 .quest .why::before { content: "\201C"; position: absolute; left: 0; top: -8px; font: 900 40px/1 var(--serif); color: var(--accent); }
 .meta { margin: 0; font-size: 14.5px; color: var(--paper-ink-2); }
 .safety { margin-top: 14px; font-size: 14px; background: #f8e7b8; color: #5b4000; border-radius: 10px; padding: 9px 12px; }
-details.easier { margin-top: 14px; border-top: 1px dashed rgba(42,33,24,.2); padding-top: 12px; font-size: 15px; }
-details.easier summary { cursor: pointer; font-weight: 700; color: var(--paper-accent); padding-block: 11px; margin-block: -6px; }
-details.easier p { margin: 6px 0 0; }
 
 .done-today { text-align: center; padding: 4px 0 0; }
 .done-today h2 { font: 900 32px/1.1 var(--serif); margin: 22px 0 6px; }
@@ -419,13 +416,6 @@ button.kcard { border: 0; padding: 0; background: none; color: inherit; font: in
 .kf-planned { display: block; margin-top: 4px; font: italic 500 12px var(--serif); color: #ffb08f; }
 .kcard.mid .kf-planned { display: none; }
 
-/* ---------- easy version ---------- */
-.quest.is-easy .prompt { font-style: normal; }
-.easy-tag { font-weight: 700; color: var(--paper-accent); }
-details.easier .btn { margin-top: 10px; min-height: 44px; background: transparent; border-color: rgba(42,33,24,.25); color: var(--paper-ink); }
-div.easier { margin-top: 14px; border-top: 1px dashed rgba(42,33,24,.2); padding-top: 10px; }
-div.easier .link { color: var(--paper-accent); }
-
 /* ---------- Day Zero ---------- */
 .kcard.kzero { --rc: #ff7a45; }
 .notice.zero { display: block; padding-right: 16px; }
@@ -455,7 +445,6 @@ div.easier .link { color: var(--paper-accent); }
 .deck-sheet .sheet-panel { padding-top: 62px; }
 .breather-tag { margin: 0 2px 12px; font: italic 500 17px var(--serif); color: var(--ink-2); }
 .sub.first { margin-top: 0; }
-.proof-easy { margin: -12px 0 14px; font: italic 500 16px var(--serif); color: #ffb08f; }
 /* a 44px tap area that doesn't push the line apart */
 .level .link { min-height: 44px; margin-block: -12px; padding: 0 2px 0 4px; font-weight: 400; color: var(--ink-2); }
 .deck-sheet p { line-height: 1.5; }
