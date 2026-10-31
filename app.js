@@ -443,6 +443,15 @@ function today() {
     state.day.shown.push(nextPick());
     saveDay();
   }
+  // a challenge removed from the deck never stays as the current pick or a plan
+  const gone = id => !!(state.byId.get(id) || {}).retired;
+  const d = state.day;
+  if (plans().some(p => gone(p.id))) savePlans(plans().filter(p => !gone(p.id)));
+  if (!d.earned && (gone(d.custom) || gone(d.shown[d.idx]))) {
+    if (gone(d.custom)) d.custom = null;
+    if (gone(d.shown[d.idx])) d.shown[d.idx] = nextPick();
+    saveDay();
+  }
   return state.day;
 }
 function courageProgress() {
