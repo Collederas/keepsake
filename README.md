@@ -45,7 +45,7 @@ It also works on GitHub Pages as is. All data stays on the device: cards are sto
 
 | Path | What |
 |---|---|
-| `data/challenges.json` | The curated challenge database (133 challenges: 101 regular, 17 secret, 15 tiny) |
+| `data/challenges.json` | The curated challenge database (109 challenges: 77 regular, 17 secret, 15 tiny) |
 | `index.html`, `style.css`, `app.js` | The prototype: Today / Deck / Book, the proof sheet, the card reveal, PNG export |
 | `sw.js`, `manifest.webmanifest`, `icons/` | Offline support, background reminders, home-screen install |
 | `og.jpg` | The image shown when the link is shared |
